@@ -1,0 +1,17 @@
+﻿WS63 烧录工作站 Pro v1.1.3
+======================================
+
+发给别人（推荐）：双击 WS63BurnPro-Portable.exe（单体，约 72.8 MB）
+本地目录版：release\WS63BurnPro.exe（整夹拷贝，启动更快）
+OTA 更新包：WS63BurnPro-win-x64.zip（约 112.6 MB）
+
+构建时间：2026-10-29 20:49:46
+产物校验：版本 1.1.3；EXE / app.asar / preload.cjs / 串口原生模块齐全
+
+SHA256
+  WS63BurnPro-Portable.exe = 6220559669BBC3CD8471702E15F999DD4356589E757BF16BC26A9A6E1AFC9DAB
+  WS63BurnPro-win-x64.zip = E607B72823892B22330F6960BB3393F304515DADC7F78692542FB8E95EC965EC
+
+GitHub OTA：
+1. 在 GitHub 创建 Release，tag 写成 v1.1.3
+2. 上传 WS63BurnPro-win-x64.zip（安装时会校验包内产品名/版本，失败会自动回滚）

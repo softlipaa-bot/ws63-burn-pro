@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <script>
+      /*
+       * 首屏主题判定（早于任何绘制执行）：与 src/lib/appearance.ts 使用同一个
+       * localStorage key 与同一套 html 状态（data-theme + dark/light class + color-scheme），
+       * 避免挂载前先闪一屏旧颜色。
+       * 逻辑必须保持可降级：存储被禁 / matchMedia 缺失时按浅色渲染，绝不抛错阻断启动。
+       */
+      (function () {
+        var KEY = "ws63-appearance-v1";
+        var root = document.documentElement;
+        var stored = null;
+        try {
+          stored = window.localStorage ? window.localStorage.getItem(KEY) : null;
+        } catch (error) {
+          stored = null;
+        }
+        var resolved;
+        if (stored === "light" || stored === "dark") {
+          resolved = stored;
+        } else {
+          var systemDark = false;
+          try {
+            systemDark = !!(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+          } catch (error) {
+            systemDark = false;
+          }
+          resolved = systemDark ? "dark" : "light";
+        }
+        root.setAttribute("data-theme", resolved);
+        root.classList.toggle("dark", resolved === "dark");
+        root.classList.toggle("light", resolved !== "dark");
+        root.style.colorScheme = resolved;
+        try {
+          var meta = document.querySelector('meta[name="theme-color"]');
+          if (meta) meta.setAttribute("content", resolved === "dark" ? "#171411" : "#F2F1F5");
+        } catch (error) {
+          /* ignore */
+        }
+      })();
+    </script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#F2F1F5" />
+    <title>WS63 烧录工作站 Pro</title>
+    <style>
+      /* 启动壳：与 src/assets/css/main.css 同名令牌、同样层级（page → card → block），无渐变/玻璃 */
+      :root {
+        --ws-page: #f2f1f5;
+        --ws-card: #fffcfe;
+        --ws-block: #efedf2;
+        --ws-text: #20232b;
+        --ws-secondary: #626674;
+        --ws-primary: #087fff;
+        --ws-primary-soft: #e3edff;
+        --ws-border: rgb(32 35 43 / 0.1);
+        --ws-radius-card: 32px;
+        --ws-radius-block: 20px;
+        --ws-shadow-card: 0 2px 6px rgb(30 25 40 / 0.04), 0 12px 28px -10px rgb(30 25 40 / 0.12);
+        --ws-boot-font: -apple-system, BlinkMacSystemFont, "Segoe UI Variable", "Segoe UI",
+          "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", system-ui, sans-serif;
+        color-scheme: light;
+      }
+
+      html.dark,
+      html[data-theme="dark"] {
+        --ws-page: #171411;
+        --ws-card: #282420;
+        --ws-block: #36302b;
+        --ws-text: #f5f1ec;
+        --ws-secondary: #bdafa3;
+        --ws-primary: #ff9e45;
+        --ws-primary-soft: #493523;
+        --ws-border: rgb(245 241 236 / 0.12);
+        --ws-shadow-card: 0 2px 8px rgb(0 0 0 / 0.28), 0 16px 32px -14px rgb(0 0 0 / 0.45);
+        color-scheme: dark;
+      }
+
+      html,
+      body,
+      #app {
+        margin: 0;
+        height: 100%;
+        background: var(--ws-page);
+        color: var(--ws-text);
+        font-family: var(--ws-boot-font);
+        -webkit-font-smoothing: antialiased;
+      }
+
+      #boot {
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        box-sizing: border-box;
+      }
+
+      #boot .card {
+        min-width: 272px;
+        max-width: 100%;
+        box-sizing: border-box;
+        padding: 28px 32px;
+        border-radius: var(--ws-radius-card);
+        text-align: center;
+        background: var(--ws-card);
+        border: 1px solid var(--ws-border);
+        box-shadow: var(--ws-shadow-card);
+      }
+
+      #boot .mark {
+        width: 44px;
+        height: 44px;
+        margin: 0 auto 16px;
+        border-radius: var(--ws-radius-block);
+        background: var(--ws-primary-soft);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      #boot .mark::after {
+        content: "";
+        width: 12px;
+        height: 12px;
+        border-radius: 999px;
+        background: var(--ws-primary);
+      }
+
+      #boot .t {
+        font-size: 18px;
+        font-weight: 650;
+        letter-spacing: -0.02em;
+        color: var(--ws-text);
+      }
+
+      #boot .s {
+        font-size: 12px;
+        line-height: 1.5;
+        color: var(--ws-secondary);
+        margin-top: 6px;
+        font-variant-numeric: tabular-nums;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <div id="boot">
+        <div class="card">
+          <div class="mark" aria-hidden="true"></div>
+          <div class="t">WS63 烧录工作站 Pro</div>
+          <div class="s">版权归 Softlipaaa 所有 · 正在启动…</div>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

@@ -1,91 +1,72 @@
-# WS63 烧录工作站 Pro / WS63 Burn Pro
+# WS63 烧录工作站 Pro
 
-中文 | [English](#ws63-burn-pro-english)
+当前公开源码版本：**1.1.5**。源码位于本仓库，安装包见 [Releases](https://github.com/softlipaa-bot/ws63-burn-pro/releases)。
 
-**WS63BurnPro** 的公开发布与 OTA 仓库：提供 Windows 桌面端烧录工具的发行包（GitHub Release），供应用内或手工下载更新。
+## 构建
 
----
+安装 Node.js 和 Windows 原生模块构建环境。进入 `app`，运行 `npm ci`、`npm run dev`。正式打包在根目录运行 `build_release.bat`。
 
-## 项目简介
+当前同步的是 1.1.5 源码；现有 Release 保留，本次未发布新的桌面安装包。
 
-WS63 烧录工作站 Pro 是面向 **HiSilicon / 星闪 WS63** 等模组与开发板的 **Electron 桌面烧录工具**，面向产线与实验室批量烧录场景。本仓库用于托管：
+## 发布说明
 
-- 版本说明与使用介绍（本 README）
-- **GitHub Releases** 中的可分发压缩包（如 `WS63BurnPro-win-x64.zip`）
+源码来自当前本地工作目录。个人账号数据、签名私钥、本机 SDK 路径、依赖缓存和历史安装包不随源码上传。第三方依赖遵循各自许可证。
 
-典型能力（以已发布版本说明为准）：
+## 许可证
 
-| 能力 | 说明 |
+原创项目代码采用 [MIT License](LICENSE)。第三方代码、依赖及素材的原有权利和许可证继续适用。
+
+## 原项目说明
+
+# WS63 烧录工作站 Pro
+
+Electron + Vue 3 + Nuxt UI v4。
+
+## 功能
+
+| 侧栏 | 功能 |
 |------|------|
-| 多路并行烧录 | 支持多路（如 10 路）同时作业 |
-| 等待与节拍 | 可配置等待窗口（如 60s）以适配产线节拍 |
-| 桌面端分发 | Windows x64 打包（Electron） |
-| GitHub OTA | 通过本仓库 Release 检查/拉取新版本 |
+| 固件烧录 | `.fwpkg` + 串口，最多 **10 路**并行 |
+| 串口与日志 | 最多 10 路监听 |
+| 关于与更新 | 软件版本检查与在线更新 |
 
-## 下载与安装
+烧录等待进入下载模式超时：**60 秒**。烧录完成需**手动按 RST** 才能看到串口启动日志；
+应用如实区分「文件传输完成 / 协议确认完成 / 设备启动已验证（当前协议未定义，恒未验证）」。
 
-1. 打开 [Releases](https://github.com/softlipaa-bot/ws63-burn-pro/releases)
-2. 下载最新 `WS63BurnPro-win-x64.zip`（或当时命名的安装包）
-3. 解压后运行程序；若应用内提供「检查更新」，将指向本仓库的 Release
+## 开发
 
-当前示例版本：**v1.1.0** — 首发能力包括多路烧录、等待策略、GitHub OTA 与性能优化。
+```powershell
+cd D:\自研app\WS63烧录工作站Pro
+.\start_dev.bat
+```
 
-## 仓库内容说明
+## 离线测试（不需要硬件）
 
-本仓库以 **发行通道** 为主。若源码在其他私有/内网仓库维护，请以团队内部文档为准；此处保证用户能稳定拿到打包后的桌面客户端。
+```powershell
+cd app
+npm test
+```
 
-## 发版建议
+用合成 `.fwpkg`、FakeSerialPort、假设备协议与假 HTTP 响应覆盖坏包拒绝、短读、无 `C`、
+NAK、半帧、坏 CRC、超长无换行串口流、端口所有权、更新下载取消、退出门禁、IPC 参数校验。
 
-1. 在桌面工程中升高版本号并打出 Windows 包
-2. 创建 GitHub Release（标签如 `v1.1.0`）
-3. 上传 zip/安装包，并在 Release 说明中写清变更点（中英文均可）
-4. 若客户端内置 OTA：同步更新其检查用的版本元数据
+## 打包
 
-## 相关链接
+```powershell
+cd D:\自研app\WS63烧录工作站Pro
+.\build_release.bat              # 构建 + 校验 + 部署 release\ + 出 OTA zip
+.\build_release.ps1 -BuildOnly   # 只构建 + 校验（输出 app\dist-electron-release）
+```
 
-- 仓库：https://github.com/softlipaa-bot/ws63-burn-pro
-- Releases：https://github.com/softlipaa-bot/ws63-burn-pro/releases
+唯一权威 build 配置是 `app\package.json` 的 `build` 段（输出目录 `dist-electron-release`），
+脚本从它读取产品名/版本/便携版文件名，并校验 EXE / `app.asar` / `preload.cjs` / 串口原生模块齐全。
+旧的 release 与 OTA 包会被归档到 `release-archive\`，不会直接删除。
 
----
+| 产物 | 用途 |
+|------|------|
+| `WS63BurnPro-Portable.exe` | **发给别人**：单个文件，双击即用 |
+| `release\` | 本地目录版（启动更快，需整夹保留） |
+| `WS63BurnPro-win-x64.zip` | 在线更新包 |
 
-<a id="ws63-burn-pro-english"></a>
-
-# WS63 Burn Pro (English)
-
-Public **release / OTA** repository for **WS63BurnPro**, a Windows desktop flasher for HiSilicon / SparkLink **WS63** modules and boards.
-
-## Overview
-
-WS63 Burn Pro is an **Electron** desktop tool aimed at lab and production flashing. This repo hosts:
-
-- Project introduction (this README)
-- Distributable archives on **GitHub Releases** (e.g. `WS63BurnPro-win-x64.zip`)
-
-Representative features (see the latest Release notes for the source of truth):
-
-| Feature | Notes |
-|---------|--------|
-| Multi‑channel flashing | Parallel jobs (e.g. 10 channels) |
-| Timing / wait window | Configurable wait (e.g. 60s) for line cadence |
-| Desktop packaging | Windows x64 Electron builds |
-| GitHub OTA | Check / download newer builds from this repo’s Releases |
-
-## Download
-
-1. Open [Releases](https://github.com/softlipaa-bot/ws63-burn-pro/releases)
-2. Download the latest Windows zip / installer
-3. Extract and run; in‑app update (if enabled) targets this repository
-
-Example tag: **v1.1.0** — multi‑channel burn, wait strategy, GitHub OTA, performance work.
-
-## Publishing
-
-1. Bump the desktop app version and produce a Windows package
-2. Create a Release (tag like `v1.1.0`)
-3. Upload the artifact and write clear release notes
-4. If the app has built‑in OTA, update its version metadata accordingly
-
-## Links
-
-- Repository: https://github.com/softlipaa-bot/ws63-burn-pro
-- Releases: https://github.com/softlipaa-bot/ws63-burn-pro/releases
+运行时开关（诊断/兼容用）：`WS63_GPU_MODE=auto|force|disable`、`WS63_HEAP_MB=4096`、
+`WS63_SANDBOX=1|0`、`WS63_STRICT_PROTOCOL=0`（宽松协议确认，仅现场诊断）。

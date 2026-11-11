@@ -1,0 +1,1486 @@
+/**
+ * WS63 烧录工作站 Pro — FlClash 风格主题与全局样式
+ *
+ * 本文件是外观的唯一权威来源（DeepSeek 独占）。界面组件只引用这里的语义令牌，
+ * 不重复定义主题令牌、不用全局 !important 互压。
+ *
+ * 层次结构：
+ *   1. @theme        —— Tailwind / Nuxt UI 认识的颜色与字体
+ *   2. :root         —— 浅色语义令牌（默认）
+ *   3. html.dark     —— 深色语义令牌（重新配置层级，不是简单反色）
+ *   4. @layer base   —— 元素级基线：背景、字体、焦点、滚动条、表单控件
+ *   5. @layer components —— 可复用组件类 + 旧类名迁移（卡片/日志/表单/状态/导航）
+ *   6. @layer ws-overrides —— 晚于 utilities 的兜底层：Portal 弹层、旧硬编码残留
+ *   7. 动效 / 减少动效 / 响应式
+ *
+ * 主题开关由 src/lib/appearance.ts 写在 <html> 上：data-theme="light|dark" + dark class。
+ * 首屏由 index.html 的启动壳用同名令牌先行渲染，避免闪错颜色。
+ *
+ * 令牌速查（组件里请直接用）：
+ *   表面：--ws-page / --ws-card / --ws-block
+ *   文字：--ws-text / --ws-secondary / --ws-primary-text（正文级主色文字）
+ *   主色：--ws-primary / --ws-primary-soft / --ws-on-primary（主色实心上的文字）
+ *   状态：--ws-success / --ws-warning / --ws-error /（各自 *-soft 底色）
+ *   形状：--ws-radius-card(32) / --ws-radius-block(20) / --ws-radius-chip(14) / --ws-radius-pill
+ *   间距：--ws-gap(12)
+ *   动效：--ws-motion-nav(180ms) / --ws-motion-page(220ms) / --ws-motion-page-shift(6px)
+ *   焦点：--ws-focus-ring
+ */
+
+@import "tailwindcss";
+@import "@nuxt/ui";
+
+/* ============================================================================
+ * 1. Tailwind / Nuxt UI 主题色板
+ * ==========================================================================*/
+
+@theme static {
+  /* FlClash 蓝（浅色主操作） */
+  --color-brand-50: #eaf3ff;
+  --color-brand-100: #d6e8ff;
+  --color-brand-200: #b0d3ff;
+  --color-brand-300: #85bcff;
+  --color-brand-400: #55a0ff;
+  --color-brand-500: #087fff;
+  --color-brand-600: #0670e4;
+  --color-brand-700: #065fc2;
+  --color-brand-800: #064e9e;
+  --color-brand-900: #063e7d;
+  --color-brand-950: #04264d;
+
+  /* FlClash 橙（深色主操作） */
+  --color-ember-50: #fff3e6;
+  --color-ember-100: #ffe4c7;
+  --color-ember-200: #ffc98f;
+  --color-ember-300: #ffb46b;
+  --color-ember-400: #ffa857;
+  --color-ember-500: #ff9e45;
+  --color-ember-600: #f0872b;
+  --color-ember-700: #c96a1b;
+  --color-ember-800: #9e5314;
+  --color-ember-900: #7a400f;
+  --color-ember-950: #3d1f07;
+
+  /* 中性色阶跟随主题：旧代码里的 slate-* 工具类在深色下自动变成暖灰，
+     不会留下「浅色主体、深色弹窗」或深色页上的浅灰字。 */
+  --color-slate-50: var(--ws-slate-50);
+  --color-slate-100: var(--ws-slate-100);
+  --color-slate-200: var(--ws-slate-200);
+  --color-slate-300: var(--ws-slate-300);
+  --color-slate-400: var(--ws-slate-400);
+  --color-slate-500: var(--ws-slate-500);
+  --color-slate-600: var(--ws-slate-600);
+  --color-slate-700: var(--ws-slate-700);
+  --color-slate-800: var(--ws-slate-800);
+  --color-slate-900: var(--ws-slate-900);
+  --color-slate-950: var(--ws-slate-950);
+
+  /* 语义强调色也跟随主题（运行/未验证/失败标记在深色下同样可读） */
+  --color-amber-500: var(--ws-warning);
+  --color-amber-600: var(--ws-warning);
+  --color-amber-700: var(--ws-warning);
+  --color-red-600: var(--ws-error);
+  --color-red-700: var(--ws-error);
+  --color-emerald-600: var(--ws-success);
+  --color-orange-500: var(--ws-primary);
+  --color-orange-600: var(--ws-primary);
+
+  /* 系统中文字体优先；端口/进度/版本用等宽数字 */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI Variable", "Segoe UI",
+    "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", system-ui, sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", "Cascadia Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+}
+
+/* ============================================================================
+ * 2. 浅色语义令牌（默认）
+ * ==========================================================================*/
+
+:root {
+  /* --- 表面层级：page → card → block --- */
+  --ws-page: #f2f1f5;
+  --ws-card: #fffcfe;
+  --ws-block: #efedf2;
+
+  /* --- 文字 --- */
+  --ws-text: #20232b;
+  --ws-secondary: #626674;
+  --ws-primary-text: #0668d6; /* 浅色底上的主色文字（≥4.5:1） */
+
+  /* --- 主色 --- */
+  --ws-primary: #087fff;
+  --ws-primary-soft: #e3edff;
+  --ws-on-primary: #ffffff;
+
+  /* --- 状态色（同时配文字或图标，不只靠颜色） --- */
+  --ws-success: #17754f;
+  --ws-success-soft: #e4f5ec;
+  --ws-warning: #9a5a0b;
+  --ws-warning-soft: #fdf0de;
+  --ws-error: #b3261e;
+  --ws-error-soft: #fbe7e4;
+  --ws-info: #0f5c99;
+  --ws-info-soft: #e4eef9;
+
+  /* --- 描边 / 阴影 / 遮罩 --- */
+  --ws-border: rgb(32 35 43 / 0.1);
+  --ws-border-strong: rgb(32 35 43 / 0.18);
+  --ws-shadow-card: 0 2px 6px rgb(30 25 40 / 0.04), 0 12px 28px -10px rgb(30 25 40 / 0.12);
+  --ws-shadow-pop: 0 8px 24px -8px rgb(30 25 40 / 0.18), 0 2px 6px rgb(30 25 40 / 0.06);
+  --ws-scrim: rgb(23 20 17 / 0.42);
+  --ws-focus-ring: #087fff;
+  --ws-scrollbar-thumb: rgb(32 35 43 / 0.22);
+  --ws-scrollbar-thumb-hover: rgb(32 35 43 / 0.36);
+
+  /* --- 形状 / 间距 / 动效 --- */
+  --ws-radius-card: 32px;
+  --ws-radius-block: 20px;
+  --ws-radius-chip: 14px;
+  --ws-radius-pill: 999px;
+  --ws-gap: 12px;
+  --ws-motion-nav: 180ms;
+  --ws-motion-page: 220ms;
+  --ws-motion-page-shift: 6px;
+  --ws-ease: cubic-bezier(0.22, 1, 0.36, 1);
+
+  /* --- 字体 --- */
+  --ws-font-sans: var(--font-sans);
+  --ws-font-mono: var(--font-mono);
+
+  /* --- 中性色阶（供 @theme 的 slate-* 使用） --- */
+  --ws-slate-50: #f7f6f9;
+  --ws-slate-100: #efedf2;
+  --ws-slate-200: #e3e1e8;
+  --ws-slate-300: #cfccd6;
+  --ws-slate-400: #9aa0ac;
+  --ws-slate-500: #7a8090;
+  --ws-slate-600: #626674;
+  --ws-slate-700: #4a4e5a;
+  --ws-slate-800: #33373f;
+  --ws-slate-900: #20232b;
+  --ws-slate-950: #14171c;
+
+  /* --- Nuxt UI：语义映射（颜色集中在这里，组件不用改） --- */
+  --ui-radius: 0.5rem; /* radius 阶：xl=24px、2xl=32px（卡片） */
+  --ui-container: 80rem;
+  --ui-header-height: 4rem;
+
+  --ui-bg: var(--ws-card);
+  --ui-bg-muted: var(--ws-block);
+  --ui-bg-elevated: var(--ws-card);
+  --ui-bg-accented: var(--ws-block);
+  --ui-bg-inverted: var(--ws-text);
+
+  --ui-text: var(--ws-text);
+  --ui-text-highlighted: var(--ws-text);
+  --ui-text-toned: var(--ws-secondary);
+  --ui-text-muted: var(--ws-secondary);
+  --ui-text-dimmed: var(--ws-slate-400);
+  --ui-text-inverted: var(--ws-card);
+
+  --ui-border: var(--ws-border);
+  --ui-border-muted: var(--ws-border);
+  --ui-border-accented: var(--ws-border-strong);
+  --ui-border-inverted: var(--ws-text);
+
+  --ui-primary: var(--ws-primary);
+  --ui-secondary: var(--ws-secondary);
+  --ui-success: var(--ws-success);
+  --ui-warning: var(--ws-warning);
+  --ui-error: var(--ws-error);
+  --ui-info: var(--ws-info);
+
+  /* Nuxt UI 内部仍会引用 --ui-color-* 色阶（基线构建未生成，这里补齐，
+     否则 text-primary / bg-primary 等工具类会解析成空值） */
+  --ui-color-primary-50: var(--color-brand-50);
+  --ui-color-primary-100: var(--color-brand-100);
+  --ui-color-primary-200: var(--color-brand-200);
+  --ui-color-primary-300: var(--color-brand-300);
+  --ui-color-primary-400: var(--color-brand-400);
+  --ui-color-primary-500: var(--color-brand-500);
+  --ui-color-primary-600: var(--color-brand-600);
+  --ui-color-primary-700: var(--color-brand-700);
+  --ui-color-primary-800: var(--color-brand-800);
+  --ui-color-primary-900: var(--color-brand-900);
+  --ui-color-primary-950: var(--color-brand-950);
+  --ui-color-neutral-50: var(--ws-slate-50);
+  --ui-color-neutral-100: var(--ws-slate-100);
+  --ui-color-neutral-200: var(--ws-slate-200);
+  --ui-color-neutral-300: var(--ws-slate-300);
+  --ui-color-neutral-400: var(--ws-slate-400);
+  --ui-color-neutral-500: var(--ws-slate-500);
+  --ui-color-neutral-600: var(--ws-slate-600);
+  --ui-color-neutral-700: var(--ws-slate-700);
+  --ui-color-neutral-800: var(--ws-slate-800);
+  --ui-color-neutral-900: var(--ws-slate-900);
+  --ui-color-neutral-950: var(--ws-slate-950);
+  --ui-color-secondary-500: var(--ws-secondary);
+  --ui-color-success-500: var(--ws-success);
+  --ui-color-warning-500: var(--ws-warning);
+  --ui-color-error-500: var(--ws-error);
+  --ui-color-info-500: var(--ws-info);
+
+  color-scheme: light;
+}
+
+/* ============================================================================
+ * 3. 深色语义令牌（重新配置层级，不是把浅色反色）
+ * ==========================================================================*/
+
+html.dark,
+html[data-theme="dark"] {
+  --ws-page: #171411;
+  --ws-card: #282420;
+  --ws-block: #36302b;
+
+  --ws-text: #f5f1ec;
+  --ws-secondary: #bdafa3;
+  --ws-primary-text: #ff9e45;
+
+  --ws-primary: #ff9e45;
+  --ws-primary-soft: #493523;
+  --ws-on-primary: #2a1b0c; /* 深色主按钮用深色文字 */
+
+  --ws-success: #6fd3a2;
+  --ws-success-soft: #1f3b30;
+  --ws-warning: #ffc46b;
+  --ws-warning-soft: #40301b;
+  --ws-error: #ff9c93;
+  --ws-error-soft: #45231f;
+  --ws-info: #93c6ee;
+  --ws-info-soft: #1e2f3f;
+
+  --ws-border: rgb(245 241 236 / 0.12);
+  --ws-border-strong: rgb(245 241 236 / 0.22);
+  --ws-shadow-card: 0 2px 8px rgb(0 0 0 / 0.28), 0 16px 32px -14px rgb(0 0 0 / 0.45);
+  --ws-shadow-pop: 0 12px 32px -8px rgb(0 0 0 / 0.55), 0 2px 8px rgb(0 0 0 / 0.3);
+  --ws-scrim: rgb(8 6 5 / 0.62);
+  --ws-focus-ring: #ffb672;
+  --ws-scrollbar-thumb: rgb(245 241 236 / 0.24);
+  --ws-scrollbar-thumb-hover: rgb(245 241 236 / 0.4);
+
+  /* 深色中性阶：数字越小越亮（text 用 200/300，surface 用 900/950） */
+  --ws-slate-50: #f5f1ec;
+  --ws-slate-100: #ede7e1;
+  --ws-slate-200: #d8d0c8;
+  --ws-slate-300: #bdafa3;
+  --ws-slate-400: #9c8f83;
+  --ws-slate-500: #7c7267;
+  --ws-slate-600: #5f584f;
+  --ws-slate-700: #4a443c;
+  --ws-slate-800: #3b352f;
+  --ws-slate-900: #282420;
+  --ws-slate-950: #171411;
+
+  --ui-bg: var(--ws-card);
+  --ui-bg-muted: var(--ws-block);
+  --ui-bg-elevated: #322d28;
+  --ui-bg-accented: #3f3831;
+  --ui-bg-inverted: var(--ws-text);
+
+  --ui-text: var(--ws-text);
+  --ui-text-highlighted: var(--ws-text);
+  --ui-text-toned: var(--ws-secondary);
+  --ui-text-muted: var(--ws-secondary);
+  --ui-text-dimmed: var(--ws-slate-400);
+  --ui-text-inverted: var(--ws-page);
+
+  --ui-border: var(--ws-border);
+  --ui-border-muted: var(--ws-border);
+  --ui-border-accented: var(--ws-border-strong);
+  --ui-border-inverted: var(--ws-text);
+
+  --ui-primary: var(--ws-primary);
+  --ui-secondary: var(--ws-secondary);
+  --ui-success: var(--ws-success);
+  --ui-warning: var(--ws-warning);
+  --ui-error: var(--ws-error);
+  --ui-info: var(--ws-info);
+
+  /* 深色主色翻转为橙色：Nuxt UI 的主色阶同步换到 ember 阶 */
+  --ui-color-primary-50: var(--color-ember-50);
+  --ui-color-primary-100: var(--color-ember-100);
+  --ui-color-primary-200: var(--color-ember-200);
+  --ui-color-primary-300: var(--color-ember-300);
+  --ui-color-primary-400: var(--color-ember-400);
+  --ui-color-primary-500: var(--color-ember-500);
+  --ui-color-primary-600: var(--color-ember-600);
+  --ui-color-primary-700: var(--color-ember-700);
+  --ui-color-primary-800: var(--color-ember-800);
+  --ui-color-primary-900: var(--color-ember-900);
+  --ui-color-primary-950: var(--color-ember-950);
+
+  color-scheme: dark;
+}
+
+/* ============================================================================
+ * 4. 基线
+ * ==========================================================================*/
+
+@layer base {
+  html {
+    height: 100%;
+    background: var(--ws-page);
+    color-scheme: light;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  html.dark,
+  html[data-theme="dark"] {
+    color-scheme: dark;
+  }
+
+  body {
+    height: 100%;
+    margin: 0;
+    background: var(--ws-page);
+    color: var(--ws-text);
+    font-family: var(--ws-font-sans);
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    overflow-wrap: break-word;
+  }
+
+  /* 鼠标/触摸点击不出现蓝色矩形框；键盘操作保留可见焦点 */
+  *,
+  *::before,
+  *::after {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--ws-focus-ring);
+    outline-offset: 2px;
+  }
+
+  :focus:not(:focus-visible) {
+    outline: none;
+  }
+
+  ::selection {
+    background: var(--ws-primary-soft);
+    color: var(--ws-text);
+  }
+
+  input,
+  select,
+  textarea,
+  button {
+    font-family: inherit;
+    font-size: inherit;
+    color: inherit;
+  }
+
+  ::placeholder {
+    color: var(--ws-secondary);
+    opacity: 1;
+  }
+
+  /* 滚动条：细、低对比，深色下同样可见 */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--ws-scrollbar-thumb) transparent;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background-color: var(--ws-scrollbar-thumb);
+    border-radius: var(--ws-radius-pill);
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: var(--ws-scrollbar-thumb-hover);
+  }
+
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  /* 长 ID / 路径 / 版本号：可换行，不撑破布局 */
+  pre,
+  code,
+  kbd,
+  samp {
+    font-family: var(--ws-font-mono);
+  }
+
+  a {
+    color: var(--ws-primary-text);
+    text-decoration: none;
+  }
+
+  a:hover {
+    text-decoration: underline;
+  }
+
+  hr {
+    border: 0;
+    border-top: 1px solid var(--ws-border);
+  }
+
+  img,
+  svg,
+  video {
+    max-width: 100%;
+  }
+
+  [hidden] {
+    display: none !important;
+  }
+}
+
+/* ============================================================================
+ * 5. 组件层：可复用语义类 + 旧类名迁移
+ * ==========================================================================*/
+
+@layer components {
+  /* ---------- 5.1 表面与排版 ---------- */
+
+  .ws-card {
+    background: var(--ws-card);
+    color: var(--ws-text);
+    border: 1px solid var(--ws-border);
+    border-radius: var(--ws-radius-card);
+    box-shadow: var(--ws-shadow-card);
+    padding: 20px;
+  }
+
+  .ws-block {
+    background: var(--ws-block);
+    color: var(--ws-text);
+    border: 1px solid transparent;
+    border-radius: var(--ws-radius-block);
+    padding: var(--ws-gap);
+  }
+
+  .ws-card-flat {
+    background: var(--ws-card);
+    color: var(--ws-text);
+    border: 1px solid var(--ws-border);
+    border-radius: var(--ws-radius-card);
+  }
+
+  .ws-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 28px;
+    padding: 0 10px;
+    border-radius: var(--ws-radius-chip);
+    background: var(--ws-block);
+    color: var(--ws-secondary);
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 1.4;
+  }
+
+  .ws-title {
+    margin: 0;
+    font-size: 26px;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    line-height: 1.2;
+    color: var(--ws-text);
+  }
+
+  .ws-subtitle {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--ws-text);
+  }
+
+  .ws-label {
+    margin: 0;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--ws-secondary);
+  }
+
+  .ws-muted {
+    color: var(--ws-secondary);
+    font-size: 12px;
+  }
+
+  /* 关键数值：32–36px、粗体、等宽数字 */
+  .ws-value {
+    font-size: 32px;
+    font-weight: 700;
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+    color: var(--ws-text);
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+  }
+
+  .ws-tabular {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+  }
+
+  /* 端口 / 进度 / 版本号 */
+  .ws-mono {
+    font-family: var(--ws-font-mono);
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+    letter-spacing: 0;
+  }
+
+  .ws-divider {
+    height: 1px;
+    width: 100%;
+    background: var(--ws-border);
+    border: 0;
+  }
+
+  /* 至少 44×44 的点击目标 */
+  .ws-hit {
+    min-width: 44px;
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .ws-stack {
+    display: flex;
+    flex-direction: column;
+    gap: var(--ws-gap);
+  }
+
+  .ws-row {
+    display: flex;
+    align-items: center;
+    gap: var(--ws-gap);
+  }
+
+  /* ---------- 5.2 状态（同时用颜色 + 文字/图标，不只靠颜色） ---------- */
+
+  .ws-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 28px;
+    padding: 0 10px;
+    border-radius: var(--ws-radius-chip);
+    background: var(--ws-status-bg, var(--ws-block));
+    color: var(--ws-status-fg, var(--ws-secondary));
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.4;
+    white-space: nowrap;
+  }
+
+  .ws-status::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    flex: 0 0 6px;
+    border-radius: var(--ws-radius-pill);
+    background: currentColor;
+  }
+
+  .ws-status.is-idle {
+    --ws-status-fg: var(--ws-secondary);
+    --ws-status-bg: var(--ws-block);
+  }
+
+  .ws-status.is-running,
+  .ws-status.is-primary {
+    --ws-status-fg: var(--ws-primary-text);
+    --ws-status-bg: var(--ws-primary-soft);
+  }
+
+  .ws-status.is-success {
+    --ws-status-fg: var(--ws-success);
+    --ws-status-bg: var(--ws-success-soft);
+  }
+
+  .ws-status.is-warning {
+    --ws-status-fg: var(--ws-warning);
+    --ws-status-bg: var(--ws-warning-soft);
+  }
+
+  .ws-status.is-error {
+    --ws-status-fg: var(--ws-error);
+    --ws-status-bg: var(--ws-error-soft);
+  }
+
+  .ws-status.is-info {
+    --ws-status-fg: var(--ws-info);
+    --ws-status-bg: var(--ws-info-soft);
+  }
+
+  /* ---------- 5.3 表单 ---------- */
+
+  .ws-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .ws-field-label {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--ws-secondary);
+  }
+
+  /* 原生控件兜底：Nuxt UI 组件有自己的样式，这里只保证裸 input 不难看 */
+  .ws-input,
+  .ws-select,
+  .ws-textarea {
+    min-height: 44px;
+    padding: 0 12px;
+    border-radius: var(--ws-radius-chip);
+    background: var(--ws-block);
+    color: var(--ws-text);
+    border: 1px solid transparent;
+    font-size: 14px;
+    transition: border-color var(--ws-motion-nav) var(--ws-ease);
+  }
+
+  .ws-textarea {
+    padding: 10px 12px;
+    min-height: 88px;
+    resize: vertical;
+    line-height: 1.55;
+  }
+
+  .ws-input:hover,
+  .ws-select:hover,
+  .ws-textarea:hover {
+    border-color: var(--ws-border-strong);
+  }
+
+  .ws-input:focus-visible,
+  .ws-select:focus-visible,
+  .ws-textarea:focus-visible {
+    border-color: var(--ws-primary);
+  }
+
+  .ws-input:disabled,
+  .ws-select:disabled,
+  .ws-textarea:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+
+  /* 分段按钮 / 胶囊（旧 .glass-seg 的新外观） */
+  .ws-seg {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 3px;
+    border-radius: var(--ws-radius-pill);
+    background: var(--ws-block);
+    border: 1px solid var(--ws-border);
+  }
+
+  .ws-seg > button {
+    min-height: 36px;
+    padding: 0 12px;
+    border: 0;
+    border-radius: var(--ws-radius-pill);
+    background: transparent;
+    color: var(--ws-secondary);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition:
+      background-color var(--ws-motion-nav) var(--ws-ease),
+      color var(--ws-motion-nav) var(--ws-ease);
+  }
+
+  .ws-seg > button:hover {
+    color: var(--ws-text);
+  }
+
+  .ws-seg > button.is-on,
+  .ws-seg > button[aria-selected="true"] {
+    background: var(--ws-card);
+    color: var(--ws-text);
+    box-shadow: 0 1px 2px rgb(30 25 40 / 0.08);
+  }
+
+  /* ---------- 5.4 日志 ---------- */
+
+  .ws-log {
+    background: var(--ws-block);
+    border: 1px solid var(--ws-border);
+    border-radius: var(--ws-radius-block);
+    color: var(--ws-text);
+    font-family: var(--ws-font-mono);
+    font-size: 12px;
+    line-height: 1.55;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .log-scroll-area {
+    overflow-x: hidden;
+    overflow-y: scroll;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+    scrollbar-width: thin;
+    scrollbar-color: var(--ws-scrollbar-thumb) transparent;
+    contain: layout paint;
+    overflow-anchor: none;
+    background: var(--ws-block);
+  }
+
+  .log-scroll-area pre {
+    contain: content;
+  }
+
+  .log-scroll-area::-webkit-scrollbar {
+    width: 10px;
+  }
+
+  .log-scroll-area::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .log-scroll-area::-webkit-scrollbar-thumb {
+    background-color: var(--ws-scrollbar-thumb);
+    border-radius: var(--ws-radius-pill);
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+
+  .log-scroll-area::-webkit-scrollbar-thumb:hover {
+    background-color: var(--ws-scrollbar-thumb-hover);
+  }
+
+  .log-text {
+    margin: 0;
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+    tab-size: 4;
+    overflow-wrap: normal;
+    word-break: keep-all;
+    color: var(--ws-text);
+  }
+
+  .log-line-serial {
+    color: var(--ws-info);
+  }
+
+  .log-line-success {
+    color: var(--ws-success);
+  }
+
+  .log-line-error {
+    color: var(--ws-error);
+  }
+
+  /* ---------- 5.5 应用外壳（page → card → block，无渐变/玻璃） ---------- */
+
+  .app-shell {
+    position: relative;
+    isolation: isolate;
+    color: var(--ws-text);
+    background: var(--ws-page);
+  }
+
+  /* 烧录进行中：只在顶栏加一条主色实线，不整页换色、不重新合成整个页面 */
+  .app-shell.is-flashing .chrome-tabs {
+    box-shadow: inset 0 -2px 0 0 var(--ws-primary);
+  }
+
+  /* 兼容旧类名：现在都是「实色卡片」，不再有全页毛玻璃 */
+  .glass-panel,
+  .glass-panel-strong,
+  .glass-log {
+    background: var(--ws-card);
+    border: 1px solid var(--ws-border);
+    border-radius: var(--ws-radius-card);
+    box-shadow: var(--ws-shadow-card);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  .glass-chip {
+    background: var(--ws-block);
+    color: var(--ws-secondary);
+    border: 1px solid transparent;
+    border-radius: var(--ws-radius-chip);
+  }
+
+  .glass-tip {
+    background: var(--ws-warning-soft);
+    border: 1px solid color-mix(in srgb, var(--ws-warning) 32%, transparent);
+    color: var(--ws-warning);
+    border-radius: var(--ws-radius-block);
+  }
+
+  .glass-footer {
+    background: var(--ws-page);
+    border-top: 1px solid var(--ws-border);
+  }
+
+  .glass-seg {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 3px;
+    border-radius: var(--ws-radius-pill);
+    background: var(--ws-block);
+    border: 1px solid var(--ws-border);
+    box-shadow: none;
+  }
+
+  .glass-seg button {
+    min-height: 36px;
+    border: 0;
+    background: transparent;
+    border-radius: var(--ws-radius-pill);
+    padding: 0 12px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--ws-secondary);
+    cursor: pointer;
+    transition:
+      background-color var(--ws-motion-nav) var(--ws-ease),
+      color var(--ws-motion-nav) var(--ws-ease);
+  }
+
+  .glass-seg button.is-on {
+    background: var(--ws-card);
+    color: var(--ws-text);
+    box-shadow: 0 1px 2px rgb(30 25 40 / 0.08);
+  }
+
+  /* ---------- 5.6 顶栏与分段导航（保留旧类名，样式换成令牌） ---------- */
+
+  .chrome-tabs {
+    padding: 12px 14px 10px;
+    background: var(--ws-page);
+    border-bottom: 1px solid var(--ws-border);
+    box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  .chrome-tabs-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    min-height: 44px;
+  }
+
+  .chrome-tabs-list {
+    --tab-w: 148px;
+    position: relative;
+    display: flex;
+    align-items: center;
+    flex: 0 0 auto;
+    min-width: 0;
+    gap: 0;
+    padding: 4px;
+    border-radius: var(--ws-radius-pill);
+    background: var(--ws-block);
+    border: 1px solid var(--ws-border);
+    box-shadow: none;
+  }
+
+  .chrome-tab-indicator {
+    position: absolute;
+    left: 4px;
+    top: 4px;
+    bottom: 4px;
+    width: var(--tab-w);
+    border-radius: var(--ws-radius-pill);
+    background: var(--ws-card);
+    box-shadow: 0 1px 2px rgb(30 25 40 / 0.1);
+    transform: translateX(calc(var(--tab-i, 0) * var(--tab-w)));
+    transition: transform var(--ws-motion-nav) var(--ws-ease);
+    z-index: 0;
+    pointer-events: none;
+  }
+
+  .chrome-tab {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    height: 36px;
+    width: var(--tab-w);
+    min-width: var(--tab-w);
+    max-width: var(--tab-w);
+    padding: 0 14px;
+    margin: 0;
+    border: 0;
+    border-radius: var(--ws-radius-pill);
+    background: transparent;
+    color: var(--ws-secondary);
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    line-height: 1;
+    cursor: pointer;
+    z-index: 1;
+    flex: 0 0 var(--tab-w);
+    transition: color var(--ws-motion-nav) var(--ws-ease);
+  }
+
+  .chrome-tab:not(.is-active):hover {
+    color: var(--ws-text);
+  }
+
+  .chrome-tab.is-active {
+    color: var(--ws-text);
+    z-index: 2;
+    background: transparent;
+  }
+
+  .chrome-tab-icon {
+    width: 15px;
+    height: 15px;
+    flex-shrink: 0;
+    opacity: 0.72;
+    transition:
+      opacity var(--ws-motion-nav) var(--ws-ease),
+      color var(--ws-motion-nav) var(--ws-ease),
+      transform var(--ws-motion-nav) var(--ws-ease);
+  }
+
+  .chrome-tab.is-active .chrome-tab-icon {
+    opacity: 1;
+    color: var(--ws-primary);
+    transform: scale(1.06);
+  }
+
+  .chrome-tab-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .chrome-tabs-meta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 4px;
+    color: var(--ws-secondary);
+    font-size: 12px;
+    flex-shrink: 0;
+    max-width: 42%;
+    margin-left: auto;
+  }
+
+  .chrome-tabs-title {
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    color: var(--ws-text);
+  }
+
+  .chrome-status {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ---------- 5.7 页面容器 ---------- */
+
+  .section-pane {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    color: var(--ws-text);
+  }
+
+  .section-pane h1 {
+    letter-spacing: -0.03em;
+    font-weight: 700;
+  }
+
+  .section-pad {
+    padding: 20px;
+    gap: 12px;
+  }
+
+  .command-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 0.5rem;
+    min-width: 0;
+  }
+
+  /* ---------- 5.8 通道卡片状态 ---------- */
+
+  .flash-card-compact {
+    background: var(--ws-card);
+    color: var(--ws-text);
+    border: 1px solid var(--ws-border);
+    border-radius: var(--ws-radius-block);
+    box-shadow: var(--ws-shadow-card);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    /* 不在基类上写 transform，避免盖住 TransitionGroup 进/离场 */
+    transition:
+      box-shadow var(--ws-motion-nav) var(--ws-ease),
+      border-color var(--ws-motion-nav) var(--ws-ease),
+      background-color var(--ws-motion-nav) var(--ws-ease);
+  }
+
+  .flash-card-compact:hover {
+    box-shadow: var(--ws-shadow-pop);
+  }
+
+  .flash-card-compact.is-running {
+    border-color: color-mix(in srgb, var(--ws-primary) 45%, transparent);
+    background: color-mix(in srgb, var(--ws-primary-soft) 55%, var(--ws-card));
+  }
+
+  .flash-card-compact.is-success {
+    border-color: color-mix(in srgb, var(--ws-success) 42%, transparent);
+    background: color-mix(in srgb, var(--ws-success-soft) 60%, var(--ws-card));
+  }
+
+  .flash-card-compact.is-error {
+    border-color: color-mix(in srgb, var(--ws-error) 42%, transparent);
+    background: color-mix(in srgb, var(--ws-error-soft) 60%, var(--ws-card));
+  }
+
+  .flash-card-compact.is-unverified {
+    border-color: color-mix(in srgb, var(--ws-warning) 48%, transparent);
+    background: color-mix(in srgb, var(--ws-warning-soft) 60%, var(--ws-card));
+  }
+
+  .flash-progress,
+  .flash-progress * {
+    animation: none !important;
+  }
+
+  .channel-meta {
+    margin: 0;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color: var(--ws-secondary);
+    overflow-wrap: anywhere;
+  }
+
+  .channel-error {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
+    max-height: 7.5rem;
+    overflow: auto;
+    padding: 0.45rem 0.55rem;
+    border-radius: var(--ws-radius-chip);
+    background: var(--ws-error-soft);
+    border: 1px solid color-mix(in srgb, var(--ws-error) 35%, transparent);
+  }
+
+  .channel-error-text,
+  .channel-error-hint,
+  .channel-error-code {
+    margin: 0;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    user-select: text;
+  }
+
+  .channel-error-text {
+    color: var(--ws-error);
+    font-size: 12px;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .channel-error-code {
+    font-family: var(--ws-font-mono);
+    font-size: 11px;
+    color: var(--ws-error);
+  }
+
+  .channel-error-hint {
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--ws-secondary);
+  }
+
+  .action-notice {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+  }
+
+  .action-notice.is-success {
+    color: var(--ws-success);
+  }
+
+  .action-notice.is-error {
+    color: var(--ws-error);
+  }
+
+  .action-notice.is-info {
+    color: var(--ws-primary-text);
+  }
+
+  /* ---------- 5.9 通道网格与过渡 ---------- */
+
+  .slot-stage {
+    contain: layout;
+  }
+
+  .slot-list-grid {
+    position: relative;
+    width: 100%;
+    display: grid;
+    align-content: start;
+    justify-content: stretch;
+  }
+
+  /* 路数变化只增减卡片，不切换 grid 模式，避免整页突然换布局 */
+  .slot-flash-grid {
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: var(--ws-gap);
+  }
+
+  .slot-monitor-grid {
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: var(--ws-gap);
+  }
+
+  .slot-list-item {
+    backface-visibility: hidden;
+    transform-origin: center center;
+  }
+
+  /* 动画期间关掉毛玻璃与重阴影，换成实色，避免首帧合成卡顿 */
+  .slot-list-grid.is-animating .flash-card-compact,
+  .slot-list-enter-active.flash-card-compact,
+  .slot-list-leave-active.flash-card-compact {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    box-shadow: none !important;
+    background: var(--ws-card) !important;
+    will-change: transform, opacity;
+  }
+
+  .slot-list-grid.is-animating {
+    contain: layout;
+  }
+
+  .slot-list-enter-active {
+    transition:
+      opacity 280ms var(--ws-ease),
+      transform 360ms var(--ws-ease) !important;
+    /* 错峰别太长，首帧创建多个 USelect 时 stagger 会叠卡 */
+    transition-delay: calc(min(var(--i, 0), 5) * 18ms);
+    z-index: 2;
+  }
+
+  /* Exit in place: fade + soft shrink */
+  .slot-list-leave-active {
+    transition:
+      opacity 220ms cubic-bezier(0.4, 0, 0.2, 1),
+      transform 260ms cubic-bezier(0.4, 0, 0.2, 1) !important;
+    pointer-events: none;
+    z-index: 5;
+  }
+
+  .slot-list-move {
+    transition: transform 360ms var(--ws-ease) !important;
+  }
+
+  .slot-list-enter-from {
+    opacity: 0;
+    transform: translate3d(0, 10px, 0) scale(0.96);
+  }
+
+  .slot-list-leave-to {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+
+  .slot-list-enter-to,
+  .slot-list-leave-from {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+
+  /* 页面切换：220ms 淡入 + 6px 轻位移（快速点击跟随最后一次，不锁动画） */
+  .section-fade-enter-active,
+  .section-fade-leave-active {
+    transition:
+      opacity var(--ws-motion-page) var(--ws-ease),
+      transform var(--ws-motion-page) var(--ws-ease);
+  }
+
+  .section-fade-enter-from {
+    opacity: 0;
+    transform: translateY(var(--ws-motion-page-shift));
+  }
+
+  .section-fade-leave-to {
+    opacity: 0;
+    transform: translateY(calc(var(--ws-motion-page-shift) * -1));
+  }
+
+  /* 供新组件按令牌复用的可选动效类（Cursor 可选用，不强制） */
+  .ws-nav-capsule {
+    border-radius: var(--ws-radius-pill);
+    background: var(--ws-card);
+    box-shadow: 0 1px 2px rgb(30 25 40 / 0.1);
+    transition: transform var(--ws-motion-nav) var(--ws-ease);
+  }
+
+  .ws-page-enter-active {
+    transition:
+      opacity var(--ws-motion-page) var(--ws-ease),
+      transform var(--ws-motion-page) var(--ws-ease);
+  }
+
+  .ws-page-enter-from {
+    opacity: 0;
+    transform: translateY(var(--ws-motion-page-shift));
+  }
+
+  /* ---------- 5.10 水印 ---------- */
+
+  .wm-layer {
+    pointer-events: none;
+    contain: layout paint style;
+    will-change: auto;
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    overflow: hidden;
+  }
+
+  .wm-diagonal {
+    position: absolute;
+    inset: -30%;
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 5rem 3.5rem;
+    transform: rotate(-28deg);
+    opacity: 0.05;
+    color: var(--ws-text);
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    user-select: none;
+    white-space: nowrap;
+  }
+
+  .wm-corner {
+    position: absolute;
+    right: 14px;
+    bottom: 10px;
+    font-size: 12px;
+    color: var(--ws-secondary);
+    letter-spacing: 0.02em;
+    user-select: none;
+  }
+}
+
+/* ============================================================================
+ * 6. 晚于 utilities 的兜底层
+ *
+ * Nuxt UI 的弹层（Select/Dropdown/Popover/Tooltip/Modal/Slideover）通过 Portal
+ * 挂到 body 上，只能靠 data-slot 命中；这些规则要盖住组件自带的工具类，
+ * 所以放在 utilities 之后的独立层。
+ * ==========================================================================*/
+
+@layer ws-overrides {
+  /**
+   * 键盘焦点兜底。
+   *
+   * 组件库常用 `focus:outline-none` / `outline-none` 工具类抹掉原生焦点环，而工具类在
+   * utilities 层，会压掉 base 层的 :focus-visible。这里用同一套令牌在 utilities 之后
+   * 重新给出可见焦点：鼠标/触摸点击仍不出现矩形框（下方 :focus:not(:focus-visible) 规则
+   * 与浏览器默认行为保证），键盘 Tab 一定看得见当前焦点。
+   */
+  :where(a, area, button, input, select, textarea, summary, details, [tabindex]):focus-visible {
+    outline: 2px solid var(--ws-focus-ring);
+    outline-offset: 2px;
+  }
+
+  /**
+   * 点击目标 ≥44px（Codex 独立验收发现的回归项）。
+   *
+   * 真实 dist / Chrome 实测：单路「开始」按钮、固件选择图标按钮、USelect 触发器只有 28–32px。
+   * 这里在 utilities 之后再补最小尺寸：
+   * - 高度：`min-height` 优先于组件库的固定 `height`（height 小于 min-height 时取 min-height），
+   *   所以 Nuxt UI 的 `h-6 / h-8 / py-1` 也会被抬到 44px；
+   * - 宽度：`min-width` 只对本来窄于 44px 的纯图标按钮生效（固件选择 28×28 → 44×44）；
+   *   文字按钮与全宽控件本来就更宽，不会被撑开，多路 compact 网格不会因此换行。
+   *
+   * 作用域限定 `.ws-app .section-pane`（三个业务页面）：顶栏 / 侧栏 / Dock 里已经是
+   * 44px 的主题按钮与导航按钮不受影响。明确排除 checkbox / switch / radio / 下拉项，
+   * 也不选 badge（span）与日志文字，避免把状态标签和日志行撑大。
+   *
+   * 写法注意：四条选择器各自写全，**不要**写成 `:is(...)\n   :not(...)` 那种跨行形式——
+   * 伪类之间的换行/空格是后代组合符，会让规则落到按钮内部的 span 上而不是按钮本身，
+   * 从而看起来「加了样式但没生效」。下面用并列选择器，每条都是完整复合选择器。
+   */
+  .ws-app .section-pane button:not([role="checkbox"]):not([role="switch"]):not([role="radio"]),
+  .ws-app .section-pane [role="combobox"]:not([role="checkbox"]):not([role="switch"]):not([role="option"]),
+  .ws-app .section-pane input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
+  .ws-app .section-pane textarea:not([role="option"]) {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  /* 下拉 / 气泡 / 提示 / 弹窗的内容面：统一换成卡片层，去掉浓阴影与半透明 */
+  [data-slot="content"] {
+    background-color: var(--ws-card);
+    color: var(--ws-text);
+    border: 1px solid var(--ws-border);
+    box-shadow: var(--ws-shadow-pop);
+    --ui-bg: var(--ws-card);
+    --ui-bg-muted: var(--ws-block);
+    --ui-bg-elevated: var(--ws-card);
+    --ui-bg-accented: var(--ws-block);
+    --ui-text: var(--ws-text);
+    --ui-text-highlighted: var(--ws-text);
+    --ui-text-muted: var(--ws-secondary);
+    --ui-text-toned: var(--ws-secondary);
+    --ui-border: var(--ws-border);
+    --ui-border-muted: var(--ws-border);
+    --ui-border-accented: var(--ws-border-strong);
+  }
+
+  /* 遮罩：轻量半透明，不做全屏毛玻璃 */
+  [data-slot="overlay"] {
+    background-color: var(--ws-scrim);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  /* 下拉条目高亮（键盘上下键与 hover 一致可见） */
+  [data-slot="item"]:hover,
+  [data-slot="item"][data-highlighted],
+  [data-slot="item"][data-state="checked"] {
+    background-color: var(--ws-primary-soft);
+    color: var(--ws-text);
+  }
+
+  /* 旧 App.vue 残留的硬编码浅色工具类：深色下不再是刺眼的白色块。
+     Cursor 重写 App.vue 后可以删除这一段。 */
+  [class~="bg-white/55"],
+  [class~="bg-white/52"] {
+    background-color: var(--ws-card);
+  }
+}
+
+/* ============================================================================
+ * 7. 减少动效（prefers-reduced-motion）
+ * ==========================================================================*/
+
+@media (prefers-reduced-motion: reduce) {
+  /* 减少动效时关掉过渡。is-animating 仍会在换路的一瞬间去掉毛玻璃。 */
+  .chrome-tab,
+  .chrome-tab-indicator,
+  .section-fade-enter-active,
+  .section-fade-leave-active,
+  .slot-list-move,
+  .slot-list-enter-active,
+  .slot-list-leave-active,
+  .slot-list-enter-from,
+  .slot-list-leave-to,
+  .slot-list-grid.is-animating .flash-card-compact,
+  .slot-list-grid.is-animating .slot-list-item,
+  .ws-nav-capsule,
+  .ws-page-enter-active,
+  .ws-page-enter-from {
+    transition: none !important;
+    animation: none !important;
+    will-change: auto !important;
+  }
+
+  html {
+    scroll-behavior: auto;
+  }
+
+  /* 减少动效 + 少一层全屏合成 */
+  .wm-layer {
+    display: none !important;
+  }
+}
+
+/* ============================================================================
+ * 8. 响应式
+ * ==========================================================================*/
+
+@media (max-width: 1100px), (max-height: 720px) {
+  .section-pad {
+    padding: 12px;
+    gap: 8px;
+  }
+
+  .chrome-tabs {
+    padding: 8px 10px;
+  }
+
+  .chrome-tabs-list {
+    --tab-w: 124px;
+  }
+
+  .chrome-tabs-title {
+    display: none;
+  }
+
+  .chrome-tabs-meta {
+    max-width: none;
+  }
+
+  .ws-card {
+    padding: 16px;
+  }
+}
+
+@media (max-width: 720px) {
+  .chrome-tabs-list {
+    --tab-w: 104px;
+  }
+
+  .chrome-tab {
+    font-size: 12px;
+    padding: 0 8px;
+    gap: 4px;
+  }
+
+  .slot-flash-grid,
+  .slot-monitor-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .ws-title {
+    font-size: 22px;
+  }
+
+  .ws-value {
+    font-size: 28px;
+  }
+}
+
+/* 触摸屏 / 鼠标粗指针：点击目标保持 ≥44px */
+@media (pointer: coarse) {
+  .chrome-tab,
+  .ws-seg > button,
+  .glass-seg button {
+    min-height: 44px;
+  }
+}

@@ -1,0 +1,76 @@
+{
+  "name": "ws63-burn-pro",
+  "version": "1.1.5",
+  "description": "WS63 Burn Pro - Electron + Nuxt UI",
+  "main": "electron/main.js",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k \"vite\" \"wait-on http://127.0.0.1:5173 && electron .\"",
+    "build": "vite build",
+    "manifest": "node scripts/build-manifest.mjs",
+    "verify:package": "node scripts/package-consistency.mjs --target \"release=../release\" --target \"dist=dist-electron-release/win-unpacked\" --portable \"../WS63BurnPro-Portable.exe\"",
+    "electron:pack": "npm run build && npm run manifest && electron-builder --win --x64 --publish never",
+    "test": "node --test --test-concurrency=1 \"test/*.test.mjs\""
+  },
+  "build": {
+    "appId": "com.ws63.burnpro",
+    "productName": "WS63BurnPro",
+    "directories": {
+      "output": "dist-electron-release",
+      "buildResources": "build"
+    },
+    "icon": "build/icon.ico",
+    "files": [
+      "package.json",
+      "dist/**/*",
+      "electron/**/*"
+    ],
+    "asar": true,
+    "asarUnpack": [
+      "**/*.node",
+      "electron/preload.cjs",
+      "**/node_modules/serialport/**",
+      "**/node_modules/@serialport/**"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "dir",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "npmRebuild": true,
+    "portable": {
+      "artifactName": "WS63BurnPro-Portable.exe"
+    }
+  },
+  "dependencies": {
+    "@serialport/parser-readline": "^13.0.0",
+    "serialport": "^13.0.0"
+  },
+  "devDependencies": {
+    "@iconify-json/lucide": "^1.2.149",
+    "@nuxt/ui": "^4.8.1",
+    "@vitejs/plugin-vue": "^5.2.1",
+    "concurrently": "^9.1.2",
+    "electron": "^34.0.0",
+    "electron-builder": "^25.1.8",
+    "tailwindcss": "^4.1.4",
+    "typescript": "^5.7.3",
+    "vite": "^6.0.11",
+    "vue": "^3.5.13",
+    "vue-router": "^4.6.4",
+    "vue-tsc": "^2.2.0",
+    "wait-on": "^8.0.2"
+  }
+}
