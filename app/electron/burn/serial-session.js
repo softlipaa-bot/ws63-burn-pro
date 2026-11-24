@@ -172,7 +172,7 @@ export class SerialSession {
 
   _rejectAll(error) {
     for (const waiter of this.waiters.splice(0)) {
-      clearTimeout(waiter.timer);
+      waiter.cleanup();
       waiter.reject(error);
     }
     // 写等待同样必须结束（R2）：否则取消/断线后仍卡在 await write()
@@ -235,7 +235,7 @@ export class SerialSession {
       const data = this.queue.subarray(0, waiter.count);
       this.queue = this.queue.subarray(waiter.count);
       this.waiters.shift();
-      clearTimeout(waiter.timer);
+      waiter.cleanup();
       waiter.resolve(data);
     }
   }
@@ -244,8 +244,11 @@ export class SerialSession {
    * 读固定字节数。关闭/IO 错误立即失败（不等超时）。
    * @param {number} count
    * @param {number} timeoutMs
+   * @param {AbortSignal} [stopSignal]
    */
-  read(count, timeoutMs = 5000) {
+  read(count, timeoutMs = 5000, stopSignal) {
+    const cancelled = () => new SerialError(SERIAL_ERROR_CODE.ABORTED, "操作已取消");
+    if (stopSignal?.aborted) return Promise.reject(cancelled());
     const want = Math.max(1, Number(count) || 1);
     if (this.queue.length >= want) {
       this.stats.reads += 1;
@@ -257,19 +260,34 @@ export class SerialSession {
     if (fatal) return Promise.reject(fatal);
 
     return new Promise((resolve, reject) => {
-      const waiter = { count: want, resolve, reject, timer: null };
-      waiter.timer = setTimeout(() => {
+      const waiter = { count: want, resolve, reject, timer: null, cleanup: null };
+      const remove = () => {
         const idx = this.waiters.indexOf(waiter);
         if (idx >= 0) this.waiters.splice(idx, 1);
-        this.stats.timeouts += 1;
-        reject(new SerialError(SERIAL_ERROR_CODE.READ_TIMEOUT, "串口读取超时"));
-      }, Math.max(1, Number(timeoutMs) || 1));
+        waiter.cleanup();
+      };
+      const onAbort = () => {
+        remove();
+        reject(cancelled());
+      };
+      waiter.cleanup = () => {
+        clearTimeout(waiter.timer);
+        stopSignal?.removeEventListener("abort", onAbort);
+      };
+      if (Number.isFinite(timeoutMs)) {
+        waiter.timer = setTimeout(() => {
+          remove();
+          this.stats.timeouts += 1;
+          reject(new SerialError(SERIAL_ERROR_CODE.READ_TIMEOUT, "串口读取超时"));
+        }, Math.max(1, Number(timeoutMs) || 1));
+      }
       this.waiters.push(waiter);
+      stopSignal?.addEventListener("abort", onAbort, { once: true });
     });
   }
 
-  readByte(timeoutMs = 5000) {
-    return this.read(1, timeoutMs).then((buf) => buf[0]);
+  readByte(timeoutMs = 5000, stopSignal) {
+    return this.read(1, timeoutMs, stopSignal).then((buf) => buf[0]);
   }
 
   /** 丢弃全部已缓冲字节（仅在明确知道字节无效时使用）。 */

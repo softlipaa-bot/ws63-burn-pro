@@ -18,7 +18,7 @@
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { spawn } from "child_process";
+import { spawn, spawnSync } from "child_process";
 
 const argv = process.argv.slice(2);
 function arg(name, fallback = null) {
@@ -174,9 +174,13 @@ function launch({ exe, label, port }) {
 }
 
 async function stop(session, cdp) {
-  cdp?.close();
+  if (cdp) {
+    void cdp.send("Browser.close").catch(() => {});
+    await Promise.race([session.exited, sleep(2500)]);
+    cdp.close();
+  }
   try {
-    session.child.kill();
+    if (session.child.exitCode === null) session.child.kill();
   } catch {
     /* ignore */
   }
@@ -244,6 +248,16 @@ async function runOne({ exe, label, port }) {
       cdp,
     );
     step("确认为打包运行（非开发模式）", info?.runtime?.packaged === true, String(info?.runtime?.packaged), cdp);
+    const reference = arg("compare");
+    if (typeof reference === "string") {
+      const checked = spawnSync(process.execPath, [
+        path.join(import.meta.dirname, "package-consistency.mjs"),
+        "--target", "build=" + path.resolve(reference),
+        "--target", "portable-runtime=" + path.dirname(info.runtime.execPath),
+      ], { encoding: "utf8" });
+      step("便携版实际解包内容与构建清单逐项一致", checked.status === 0,
+        String(checked.stdout).split("\n").filter((line) => /\[(OK|FAIL)\s*\]/.test(line)).join(" "), cdp);
+    }
 
     // ---- 2) 空串口启动
     const state = await cdp.eval(`window.ws63.call("get_state")`);
@@ -257,10 +271,11 @@ async function runOne({ exe, label, port }) {
     );
 
     // ---- 3) 界面渲染（标题栏版本徽标）
-    const titleText = await cdp.eval(`document.querySelector(".chrome-tabs-title")?.textContent?.trim() ?? ""`);
+    const titleText = await cdp.eval(`document.querySelector(".ws-brand .ws-brand-title")?.textContent?.trim() ?? ""`);
     step("主界面渲染", String(titleText).includes("WS63"), String(titleText), cdp);
+    await cdp.waitFor(`document.querySelector(".ws-topbar-meta").innerText.includes("v${info.version}")`);
     const badge = await cdp.eval(
-      `[...document.querySelectorAll(".chrome-tabs-meta *")].map(e=>e.textContent.trim()).find(t=>/^v\\d+\\.\\d+\\.\\d+/.test(t)) ?? ""`,
+      `[...document.querySelectorAll(".ws-topbar-meta *")].map(e=>e.textContent.trim()).find(t=>/^v\\d+\\.\\d+\\.\\d+/.test(t)) ?? ""`,
     );
     step("标题栏显示版本徽标", /^v\d+\.\d+\.\d+/.test(String(badge)), String(badge), cdp);
 
@@ -324,26 +339,61 @@ async function runOne({ exe, label, port }) {
       step(`多路渲染 → ${count} 路卡片`, rendered && Number(cards) === count, `cards=${cards}`, cdp);
     }
 
-    // 真实交互切换（Nuxt UI combobox）：结果记录在案，不做硬断言（CDP 驱动非产品行为）
-    const combo = `[...document.querySelectorAll('button[role=combobox]')].find(x=>/^\\d+ 路$/.test(x.textContent.trim()))`;
-    let interactiveDetail = "skipped";
-    const comboBox = await cdp.centerOf(combo);
-    if (comboBox) {
-      await cdp.realClick(comboBox.x, comboBox.y);
-      const opened = await cdp.waitFor(`document.querySelectorAll('[role=option]').length >= 10`, 4000);
-      if (opened) {
-        const opt = await cdp.centerOf(
-          `[...document.querySelectorAll('[role=option]')].find(x=>x.textContent.trim()==="3 路")`,
-        );
-        if (opt) {
-          await cdp.realClick(opt.x, opt.y);
-          await sleep(500);
-        }
-      }
-      const text = String((await cdp.eval(`${combo}?.textContent.trim()`)) ?? "");
-      interactiveDetail = `opened=${opened} combobox="${text}"`;
+    async function chooseSlots(section, count) {
+      const label = section === "flash" ? "设备数量" : "监听路数";
+      const trigger = `document.querySelector('[role="combobox"][aria-label="${label}"]')`;
+      const button = await cdp.centerOf(trigger);
+      await cdp.realClick(button.x, button.y);
+      const panel = `document.querySelector("[role=listbox]")`;
+      const shown = await cdp.waitFor(`Boolean(${panel})`);
+      if (!shown) return { shown, fits: false, animation: false };
+      const pick = `[...${panel}.querySelectorAll('[role="option"]')].find(item => item.textContent.trim() === "${count} 路")`;
+      const fits = await cdp.eval(`(() => {
+        const panel = ${panel};
+        const r = panel.getBoundingClientRect();
+        return panel.querySelectorAll('[role="option"]').length === 10 &&
+          panel.querySelectorAll('[aria-selected="true"]').length === 1 &&
+          r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight;
+      })()`);
+      const grid = `document.querySelector(".slot-${section}-grid")`;
+      await cdp.eval(`(() => {
+        window.ws63SlotCheck = {};
+        const grid = ${grid};
+        let start = performance.now();
+        (${pick}).addEventListener("pointerdown", () => {
+          start = performance.now();
+        }, { once: true, capture: true });
+        const observer = new MutationObserver(() => {
+          if (grid.children.length !== ${count}) return;
+          observer.disconnect();
+          requestAnimationFrame(() => {
+            const card = grid.firstElementChild;
+            window.ws63SlotCheck = {
+              paintMs: Math.round(performance.now() - start),
+              animation: card.getAnimations().some(a => a.effect.getKeyframes()[0].transform?.includes("translate(")),
+            };
+          });
+        });
+        observer.observe(grid, { childList: true });
+      })()`);
+      const option = await cdp.centerOf(pick);
+      await cdp.realClick(option.x, option.y);
+      await cdp.waitFor(`window.ws63SlotCheck.paintMs !== undefined`);
+      const measured = await cdp.eval("window.ws63SlotCheck");
+      const selected = await cdp.waitFor(`(${trigger}).textContent.trim() === "${count} 路" && !(${panel})`);
+      return { shown, fits, selected, ...measured };
     }
-    report.interactive = interactiveDetail;
+
+    const flashGrow = await chooseSlots("flash", 3);
+    const flashShrink = await chooseSlots("flash", 1);
+    step("烧录路数面板完整显示 10 个选项并可增减", flashGrow.selected && flashGrow.fits && flashShrink.selected && flashShrink.fits,
+      JSON.stringify({ grow: flashGrow, shrink: flashShrink }), cdp);
+    const flashPicker = await cdp.centerOf('document.querySelector("[role=combobox][aria-label=设备数量]")');
+    await cdp.realClick(flashPicker.x, flashPicker.y);
+    await cdp.waitFor('Boolean(document.querySelector("[role=listbox]"))');
+    await cdp.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
+    await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
+    step("Esc 关闭路数面板", await cdp.waitFor('!document.querySelector("[role=listbox]")'), "", cdp);
 
     // ---- 6) 日志压力（真实 IPC，不碰串口）
     const before = (await cdp.eval(`window.ws63.call("get_state")`))?.logs?.length ?? 0;
@@ -353,10 +403,47 @@ async function runOne({ exe, label, port }) {
     await sleep(600);
     const after = (await cdp.eval(`window.ws63.call("get_state")`))?.logs?.length ?? 0;
     step("日志压力（60 次真实 IPC 日志）", after > before, `before=${before} after=${after}`, cdp);
-    const alive = await cdp.eval(`Boolean(document.querySelector(".chrome-tabs-title"))`);
+    const alive = await cdp.eval(`Boolean(document.querySelector(".ws-brand .ws-brand-title"))`);
     step("日志压力后界面仍存活", alive === true, String(alive), cdp);
 
-    // ---- 7) 关闭前状态一致性
+    // ---- 7) 真实切换路数并检查发生在原有卡片上的布局动画
+    await cdp.eval(`[...document.querySelectorAll('button[role=tab]')]
+      .find(b => b.getClientRects().length && b.textContent.includes("串口与日志")).click()`);
+    await cdp.waitFor(`document.querySelectorAll(".slot-monitor-grid .slot-list-item").length === 1`);
+    await sleep(300);
+    const monitorGrew = await chooseSlots("monitor", 3);
+    step("监听切到 3 路时已有卡片平滑重排", monitorGrew.selected && monitorGrew.fits && monitorGrew.animation,
+      JSON.stringify(monitorGrew), cdp);
+
+    // ---- 8) 用真实 IPC 持续产生日志，检查回看位置和恢复跟随
+    const addLogs = (count) => cdp.eval(`(async () => {
+      for (let i = 0; i < ${count}; i += 1) await window.ws63.call("serial_disconnect", { channel: "1" });
+    })()`);
+    const log = `document.querySelector("#section-panel-monitor .log-scroll-area")`;
+    await addLogs(80);
+    const initialFollow = await cdp.waitFor(`(() => {
+      const p = ${log}; return p.scrollTop > 300 && p.scrollHeight - p.scrollTop - p.clientHeight <= 2;
+    })()`);
+    step("实时日志自动跟随到底部", initialFollow, "", cdp);
+    const logBox = await cdp.centerOf(log);
+    await cdp.send("Input.dispatchMouseEvent", { type: "mouseWheel", ...logBox, deltaX: 0, deltaY: -280 });
+    const resume = `[...document.querySelectorAll("#section-panel-monitor button")]
+      .find(b => b.textContent.trim() === "回到最新")`;
+    const paused = await cdp.waitFor(`Boolean(${resume})`);
+    await sleep(250);
+    const view = `JSON.stringify([${log}.scrollTop, ${log}.textContent])`;
+    const beforeView = await cdp.eval(view);
+    await addLogs(40);
+    await sleep(250);
+    step("回看历史时，新日志保持视图和位置", paused && beforeView === await cdp.eval(view), "", cdp);
+    if (paused) await cdp.eval(`(${resume}).click()`);
+    const resumed = await cdp.waitFor(`(() => {
+      const p = ${log}; return ${view} !== ${JSON.stringify(beforeView)}
+        && p.scrollHeight - p.scrollTop - p.clientHeight <= 2 && !(${resume});
+    })()`);
+    step("回到最新后显示后台收到的日志并恢复跟随", resumed, "", cdp);
+
+    // ---- 9) 关闭前状态一致性
     const finalState = await cdp.eval(`window.ws63.call("get_state")`);
     step(
       "退出前无遗留烧录/占用",

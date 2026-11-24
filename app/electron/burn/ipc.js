@@ -193,8 +193,8 @@ function levelLabel(level) {
 function formatLogLine(entry) {
   const time = formatClock(entry.ts);
   const level = levelLabel(entry.level);
-  const body = String(entry.message ?? "")
-    .replace(/\r/g, "")
+  const message = String(entry.message ?? "").replace(/\r/g, "");
+  const body = entry.level === "serial" ? message : message
     .replace(/^\[[^\]]*设备[^\]]*\]\s*/u, "")
     .replace(/^>>>\s*/, "");
   const ch = entry.channel ? channelLabel(entry.channel) : "";
@@ -1062,7 +1062,8 @@ export function registerBurnIpc(ipcMain) {
       case "serial_connect": {
         const channel = guard.requireChannelId(params.channel, FLASH_CHANNEL_IDS);
         const port = guard.requirePort(params.port);
-        const baudRate = guard.requireBaud(params.baudRate, 115200);
+        const baudRate = guard.requireBaud(params.baudRate, 115200, 300);
+        const options = guard.requireSerialOptions(params.options);
         if (portUsedByFlash(port)) {
           throw new Error(`串口 ${port} 正在被烧录任务使用`);
         }
@@ -1072,10 +1073,10 @@ export function registerBurnIpc(ipcMain) {
           baudRate,
           (line) => pushLog(line, "serial", channel),
           (err) => {
-              // 串口错误/USB 断开：立即广播状态，而不是只写日志
-              pushLog(String(err.message || err), "error", channel);
-              emit({ type: "serial_state", ...getMonitorSnapshot() });
-            },
+            pushLog(String(err.message || err), "error", channel);
+            emit({ type: "serial_state", ...getMonitorSnapshot() });
+          },
+          options,
         );
         pushLog(`已连接 ${port} @ ${baudRate}`, "success", channel);
         emit({ type: "serial_state", ...getMonitorSnapshot() });

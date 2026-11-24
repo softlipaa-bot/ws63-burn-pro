@@ -12,12 +12,13 @@ const DEFAULT_MAX_LINE_CHARS = 4096;
 
 export class LineSplitter {
   /**
-   * @param {{maxLineChars?: number, onLine: (text: string, info: {truncated: boolean, partial: boolean}) => void}} opts
+   * @param {{maxLineChars?: number, encoding?: string, onLine: (text: string, info: {truncated: boolean, partial: boolean}) => void}} opts
    */
-  constructor({ maxLineChars = DEFAULT_MAX_LINE_CHARS, onLine }) {
+  constructor({ maxLineChars = DEFAULT_MAX_LINE_CHARS, encoding = "utf-8", onLine }) {
     this.maxLineChars = Math.max(64, Number(maxLineChars) || DEFAULT_MAX_LINE_CHARS);
     this.onLine = onLine;
-    this.decoder = new TextDecoder("utf-8", { fatal: false });
+    this.decoder = new TextDecoder(encoding);
+    this.trailingCR = false;
     this.line = "";
     this.truncatedSegments = 0;
     this.emittedLines = 0;
@@ -34,7 +35,10 @@ export class LineSplitter {
     if (!chunk || !chunk.byteLength) return;
     this.bytesIn += chunk.byteLength;
     const text = this.decoder.decode(chunk, { stream: true });
-    if (text) this.appendText(text);
+    if (!text) return;
+    const start = this.trailingCR && text.startsWith("\n") ? 1 : 0;
+    this.trailingCR = text.endsWith("\r");
+    this.appendText(text.slice(start).replace(/\r\n?/g, "\n"));
   }
 
   /** 定时/停止时把残留当作一行输出（partial=true）。 */

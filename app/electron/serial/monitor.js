@@ -159,7 +159,7 @@ export function getMonitorSnapshot() {
       baudRate: m?.baudRate ?? 115200,
       truncatedSegments: m?.stats.truncated ?? 0,
       droppedChars: m?.stats.droppedChars ?? 0,
-      pendingChars: m?.splitter.pendingChars ?? 0,
+      pendingChars: m?.splitter?.pendingChars ?? 0,
     };
   }
   return {
@@ -168,9 +168,8 @@ export function getMonitorSnapshot() {
   };
 }
 
-function flushQueue(channel) {
-  const m = monitors.get(channel);
-  if (!m || !m.queue.length) return;
+function flushQueue(m) {
+  if (!m.queue.length) return;
   const text = m.queue.join("");
   m.queue = [];
   m.queueChars = 0;
@@ -191,16 +190,15 @@ function scheduleFlush(channel) {
 function tickFlush(channel) {
   const m = monitors.get(channel);
   if (!m) return;
-  if (m.splitter.pendingChars > 0) {
+  if (m.splitter?.pendingChars > 0) {
     if (Date.now() - m.lastDataAt >= SERIAL_FLUSH_MS) m.splitter.flush();
     else scheduleFlush(channel);
   }
-  flushQueue(channel);
+  flushQueue(m);
 }
 
-function enqueueLine(channel, text) {
-  const m = monitors.get(channel);
-  if (!m || !text) return;
+function enqueueLine(m, text) {
+  if (!text) return;
   const chunk = `${text}\n`;
   let dropped = 0;
   while (m.queueChars + chunk.length > MAX_BUFFER_CHARS && m.queue.length) {
@@ -222,13 +220,10 @@ function enqueueLine(channel, text) {
     m.queue.push(chunk);
     m.queueChars += chunk.length;
   }
-  if (m.queue.length + m.queueChars > 0) scheduleFlush(channel);
-  maybeWarnOverflow(channel);
+  maybeWarnOverflow(m);
 }
 
-function maybeWarnOverflow(channel) {
-  const m = monitors.get(channel);
-  if (!m) return;
+function maybeWarnOverflow(m) {
   const { truncated, droppedChars } = m.stats;
   if (!truncated && !droppedChars) return;
   const now = Date.now();
@@ -240,7 +235,7 @@ function maybeWarnOverflow(channel) {
   m.onData(`[监听提示] 串口输出过快：${parts.join("，")}（日志不完整，请降低输出速率）\n`);
 }
 
-function attachPort(channel, port, path, baudRate, token, onData, onError) {
+function attachPort(channel, port, path, baudRate, token, onData, onError, options = {}) {
   // 防御：绝不覆盖一个仍然打开的条目（那会泄漏旧句柄和它的所有权）
   const existing = monitors.get(channel);
   if (existing?.port?.isOpen && existing.port !== port) {
@@ -263,17 +258,25 @@ function attachPort(channel, port, path, baudRate, token, onData, onError) {
     warnAt: 0,
     splitter: null,
   };
-  entry.splitter = new LineSplitter({
+  entry.splitter = options.encoding === "hex" ? null : new LineSplitter({
     maxLineChars: MAX_LINE_CHARS,
+    encoding: options.encoding,
     onLine: (text, info) => {
       if (info.truncated) entry.stats.truncated += 1;
-      enqueueLine(channel, text);
+      enqueueLine(entry, text);
     },
   });
   entry.onChunk = (chunk) => {
     entry.lastDataAt = Date.now();
     entry.stats.bytesIn += chunk?.byteLength ?? 0;
-    entry.splitter.push(chunk);
+    if (entry.splitter) {
+      entry.splitter.push(chunk);
+    } else {
+      for (let offset = 0; offset < chunk.length; offset += 32) {
+        const hex = Buffer.from(chunk.subarray(offset, offset + 32)).toString("hex");
+        enqueueLine(entry, hex.match(/../g).join(" ").toUpperCase());
+      }
+    }
     scheduleFlush(channel);
   };
   entry.onClose = () => {
@@ -318,9 +321,9 @@ function attachPort(channel, port, path, baudRate, token, onData, onError) {
   };
 }
 
-function detachEntry(channel, entry) {
+function detachEntry(entry) {
   entry.splitter?.flush?.();
-  flushQueue(channel);
+  flushQueue(entry);
   if (entry.flushTimer) {
     clearTimeout(entry.flushTimer);
     entry.flushTimer = null;
@@ -355,7 +358,7 @@ async function cleanupMonitor(channel, { closePort = false, expectToken = null, 
   if (!m) return false;
   if (expectToken && m.token !== expectToken) return false;
   monitors.delete(channel);
-  detachEntry(channel, m);
+  detachEntry(m);
 
   const port = m.port;
   if (!closePort || !port || !port.isOpen) {
@@ -410,17 +413,11 @@ const openPortWithTimeout = (port, ms = MONITOR_OPEN_TIMEOUT_MS) => openWithDead
 /**
  * 创建但**不打开**端口；打开交给 openPortWithTimeout，便于"打开前就装好监听"（R3）。
  */
-async function createSerialPort(path, baudRate) {
-  if (portFactory) {
-    return portFactory({ path, baudRate, autoOpen: false, highWaterMark: 64 * 1024 });
-  }
+async function createSerialPort(path, baudRate, { encoding, ...framing }) {
+  const settings = { path, baudRate, ...framing, autoOpen: false, highWaterMark: 64 * 1024 };
+  if (portFactory) return portFactory(settings);
   const { SerialPort } = await import("serialport");
-  return new SerialPort({
-    path,
-    baudRate,
-    autoOpen: false,
-    highWaterMark: 64 * 1024,
-  });
+  return new SerialPort(settings);
 }
 
 /**
@@ -502,7 +499,7 @@ export async function closeMonitorForTakeover(port, opts = {}) {
   const [channel, entry] = found;
   const token = entry.token;
   monitors.delete(channel);
-  detachEntry(channel, entry);
+  detachEntry(entry);
 
   const livePort = entry.port;
   if (!livePort?.isOpen) {
@@ -545,7 +542,7 @@ export async function closeMonitorForTakeover(port, opts = {}) {
 /**
  * 打开监听。端口在 await 之前已被原子保留，并且建立可取消的 operation（R3）。
  */
-export async function connectMonitor(channel, path, baudRate, onData, onError) {
+export async function connectMonitor(channel, path, baudRate, onData, onError, options = {}) {
   if (monitors.get(channel)?.port?.isOpen) {
     throw new Error(`${channel} 路串口已连接，请先断开`);
   }
@@ -577,7 +574,7 @@ export async function connectMonitor(channel, path, baudRate, onData, onError) {
     token = reservePort(path, { channel, kind: OWNER_KIND.OPENING }).token;
     // 取消可能发生在 createSerialPort 的 await 前后，两处都要检查（Codex 复审要点）
     if (op.cancelled || operations.get(channel) !== op) throw new Error("连接已被取消");
-    port = await createSerialPort(path, baudRate);
+    port = await createSerialPort(path, baudRate, options);
     op.port = port;
     if (op.cancelled || operations.get(channel) !== op) throw new Error("连接已被取消");
     // 打开前就装好 data/error/close（R3）：这段窗口的首字节与错误不能丢
@@ -595,7 +592,7 @@ export async function connectMonitor(channel, path, baudRate, onData, onError) {
     if (op.earlyError) throw op.earlyError;
 
     removePreOpenHandlers(port, op);
-    const attached = attachPort(channel, port, path, baudRate, token, onData, onError);
+    const attached = attachPort(channel, port, path, baudRate, token, onData, onError, options);
     attachedOk = true;
     transferPort(token, { channel, kind: OWNER_KIND.MONITORING });
     // 打开阶段到达的首字节补投给 splitter
@@ -816,7 +813,7 @@ export function getMonitorBufferStats() {
   const out = {};
   for (const [ch, m] of monitors) {
     out[ch] = {
-      pendingChars: m.splitter.pendingChars,
+      pendingChars: m.splitter?.pendingChars,
       queueChars: m.queueChars,
       bytesIn: m.stats.bytesIn,
       truncated: m.stats.truncated,

@@ -33,9 +33,9 @@ export function isPlausiblePort(raw) {
   return true;
 }
 
-export function isPlausibleBaud(raw) {
+export function isPlausibleBaud(raw, min = 1200) {
   const baud = Number(raw);
-  return Number.isFinite(baud) && baud >= 1200 && baud <= MAX_BAUD;
+  return Number.isInteger(baud) && baud >= min && baud <= MAX_BAUD;
 }
 
 /**
@@ -160,12 +160,26 @@ export function requirePort(value, label = "串口") {
   return normalizePortName(value);
 }
 
-export function requireBaud(value, fallback = 115200) {
+export function requireBaud(value, fallback = 115200, min = 1200) {
   if (value === undefined || value === null || value === "") return fallback;
-  if (!isPlausibleBaud(value)) {
+  if (!isPlausibleBaud(value, min)) {
     throw new IpcError("IPC_BAD_PARAMS", "无效的波特率");
   }
   return Number(value);
+}
+
+export function requireSerialOptions(options) {
+  if (options === undefined) return {};
+  if (!options || typeof options !== "object" || Array.isArray(options)) {
+    throw new IpcError("IPC_BAD_PARAMS", "无效的串口设置");
+  }
+  const { dataBits = 8, stopBits = 1, parity = "none", rtscts = false, encoding = "utf-8" } = options;
+  if (![5, 6, 7, 8].includes(dataBits) || ![1, 2].includes(stopBits)
+    || !["none", "even", "odd", "mark", "space"].includes(parity)
+    || typeof rtscts !== "boolean" || !["utf-8", "gb18030", "hex"].includes(encoding)) {
+    throw new IpcError("IPC_BAD_PARAMS", "串口参数或日志格式无效");
+  }
+  return { dataBits, stopBits, parity, rtscts, encoding };
 }
 
 export function optionalBoolean(value, fallback = false) {

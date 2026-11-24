@@ -729,6 +729,34 @@ html[data-theme="dark"] {
     font-variant-numeric: tabular-nums;
   }
 
+  .serial-settings > summary {
+    cursor: pointer;
+    padding: 4px 0;
+  }
+
+  .serial-settings-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 4px;
+  }
+
+  .serial-settings-grid label {
+    display: grid;
+    gap: 3px;
+  }
+
+  .serial-settings-grid select {
+    background: var(--ws-block);
+    border: 1px solid var(--ws-border);
+    border-radius: 6px;
+    padding: 3px 4px;
+  }
+
+  .monitor-log {
+    height: clamp(11rem, 40vh, 30rem);
+  }
+
   .log-scroll-area {
     overflow-x: hidden;
     overflow-y: scroll;
@@ -1031,7 +1059,6 @@ html[data-theme="dark"] {
     box-shadow: var(--ws-shadow-card);
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
-    /* 不在基类上写 transform，避免盖住 TransitionGroup 进/离场 */
     transition:
       box-shadow var(--ws-motion-nav) var(--ws-ease),
       border-color var(--ws-motion-nav) var(--ws-ease),
@@ -1140,6 +1167,7 @@ html[data-theme="dark"] {
 
   .slot-stage {
     contain: layout;
+    scrollbar-gutter: stable;
   }
 
   .slot-list-grid {
@@ -1163,60 +1191,13 @@ html[data-theme="dark"] {
 
   .slot-list-item {
     backface-visibility: hidden;
-    transform-origin: center center;
+    transform-origin: top left;
   }
 
-  /* 动画期间关掉毛玻璃与重阴影，换成实色，避免首帧合成卡顿 */
-  .slot-list-grid.is-animating .flash-card-compact,
-  .slot-list-enter-active.flash-card-compact,
-  .slot-list-leave-active.flash-card-compact {
+  .slot-list-grid.is-animating .flash-card-compact {
     backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
-    box-shadow: none !important;
-    background: var(--ws-card) !important;
-    will-change: transform, opacity;
-  }
-
-  .slot-list-grid.is-animating {
-    contain: layout;
-  }
-
-  .slot-list-enter-active {
-    transition:
-      opacity 280ms var(--ws-ease),
-      transform 360ms var(--ws-ease) !important;
-    /* 错峰别太长，首帧创建多个 USelect 时 stagger 会叠卡 */
-    transition-delay: calc(min(var(--i, 0), 5) * 18ms);
-    z-index: 2;
-  }
-
-  /* Exit in place: fade + soft shrink */
-  .slot-list-leave-active {
-    transition:
-      opacity 220ms cubic-bezier(0.4, 0, 0.2, 1),
-      transform 260ms cubic-bezier(0.4, 0, 0.2, 1) !important;
-    pointer-events: none;
-    z-index: 5;
-  }
-
-  .slot-list-move {
-    transition: transform 360ms var(--ws-ease) !important;
-  }
-
-  .slot-list-enter-from {
-    opacity: 0;
-    transform: translate3d(0, 10px, 0) scale(0.96);
-  }
-
-  .slot-list-leave-to {
-    opacity: 0;
-    transform: scale(0.94);
-  }
-
-  .slot-list-enter-to,
-  .slot-list-leave-from {
-    opacity: 1;
-    transform: translate3d(0, 0, 0) scale(1);
+    box-shadow: none;
+    transition: none;
   }
 
   /* 页面切换：220ms 淡入 + 6px 轻位移（快速点击跟随最后一次，不锁动画） */
@@ -1395,11 +1376,6 @@ html[data-theme="dark"] {
   .chrome-tab-indicator,
   .section-fade-enter-active,
   .section-fade-leave-active,
-  .slot-list-move,
-  .slot-list-enter-active,
-  .slot-list-leave-active,
-  .slot-list-enter-from,
-  .slot-list-leave-to,
   .slot-list-grid.is-animating .flash-card-compact,
   .slot-list-grid.is-animating .slot-list-item,
   .ws-nav-capsule,

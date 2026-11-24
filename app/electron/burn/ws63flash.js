@@ -1,3 +1,4 @@
+import { setTimeout as delay } from "node:timers/promises";
 import { calcCrc16 } from "./crc.js";
 import {
   FwPkgError,
@@ -20,9 +21,6 @@ import {
   describePortLines,
   normalizePortLinesMode,
 } from "../serial/port-lines.js";
-
-/** 产品规则：等待设备进入下载模式的最长时间。 */
-const RESET_TIMEOUT = 60000;
 
 /** 串口 open/set/update/close 这些原生调用卡住时的有限上限（W29-03）。 */
 const PORT_OP_TIMEOUT = 8000;
@@ -58,9 +56,8 @@ export const STAGE_LABELS = Object.freeze({
 });
 
 export const DEFAULT_FLASH_TIMING = Object.freeze({
-  resetTimeout: RESET_TIMEOUT,
-  handshakeRetryMs: 250,
-  handshakeFrameMinGapMs: 40,
+  resetTimeout: Infinity,
+  handshakeRetryMs: 50,
   settleAfterHandshakeMs: 300,
   settleAfterBaudMs: 120,
   commandAckTimeout: 8000,
@@ -148,7 +145,7 @@ export const STAGE_SPEC = Object.freeze({
   [FLASH_STAGES.HANDSHAKE]: {
     success: "收到 EF BE AD DE 帧且 cmd=0xE1、长度与 CRC 均正确",
     failCodes: ["HANDSHAKE_TIMEOUT", "STOPPED"],
-    timeoutMs: RESET_TIMEOUT,
+    timeoutMs: null,
     retryable: true,
   },
   [FLASH_STAGES.LOADER_TRANSFER]: {
@@ -604,11 +601,11 @@ export class Ws63Flasher {
     return port;
   }
 
-  async sendCmd(cmddef) {
+  async sendCmd(cmddef, stopSignal = this.stopSignal) {
     // R2：写入必须有界且可取消，否则驱动回调丢失时后续超时/停止检查都执行不到
     await this.session.write(buildCmdFrame(cmddef), {
       timeoutMs: this.timing.writeTimeout,
-      stopSignal: this.stopSignal,
+      stopSignal,
     });
   }
 
@@ -649,107 +646,103 @@ export class Ws63Flasher {
     const cmd = cloneCmd(WS63E_FLASHINFO[0]);
     const parser = this.freshParser();
     const startedAt = Date.now();
-    const deadline = startedAt + timing.resetTimeout;
     const rxAtStart = this.session?.stats?.bytesIn ?? 0;
-    const badAtStart = parser?.badFrames ?? 0;
+    const badAtStart = parser.badFrames;
+    const controller = new AbortController();
+    const signal = controller.signal;
+    const stop = () => controller.abort();
+    const rxBytes = () => Math.max(0, (this.session?.stats?.bytesIn ?? 0) - rxAtStart);
     let attempts = 0;
-    let lastCode = "TIMEOUT";
-    let lastError = null;
 
-    this.emitHandshakeProgress({
-      phase: "wait_reset",
-      attempts: 0,
-      elapsedMs: 0,
-      rxBytes: 0,
-      resetTimeoutMs: timing.resetTimeout,
+    this.assertNotAborted(FLASH_STAGES.HANDSHAKE);
+    this.stopSignal?.addEventListener("abort", stop, { once: true });
+
+    const report = (phase) => this.emitHandshakeProgress({
+      phase,
+      attempts,
+      elapsedMs: Date.now() - startedAt,
+      rxBytes: rxBytes(),
+      lastCode: parser.badFrames > badAtStart ? "BAD_FRAME" : "",
+      resetTimeoutMs: Number.isFinite(timing.resetTimeout) ? timing.resetTimeout : 0,
     });
+    report("wait_reset");
+    cmd.data.writeUInt32LE(this.targetBaud, 0);
 
-    while (Date.now() < deadline) {
-      this.assertNotAborted(FLASH_STAGES.HANDSHAKE);
-      attempts += 1;
-      cmd.data.writeUInt32LE(this.targetBaud, 0);
+    // 整段等待只有一个接收任务。ROM 需要主机发起握手，因此独立发送探测帧。
+    const receive = readFrame(this.session, parser, {
+      timeoutMs: timing.resetTimeout,
+      stopSignal: signal,
+      accept: (frame) => frame.cmd === HANDSHAKE_ACK_CMD,
+    });
+    const probe = (async () => {
       try {
-        await this.sendCmd(cmd);
+        while (!signal.aborted) {
+          attempts += 1;
+          await this.sendCmd(cmd, signal);
+          await delay(timing.handshakeRetryMs, undefined, { signal });
+        }
       } catch (err) {
+        if (signal.aborted) return { code: "STOPPED" };
         if (err?.code === SERIAL_ERROR_CODE.IO_ERROR || err?.code === SERIAL_ERROR_CODE.PORT_CLOSED) {
           throw this.handshakeFailure("HANDSHAKE_PORT_ERROR", err, { attempts });
         }
         throw err;
       }
-      const res = await readFrame(this.session, parser, {
-        timeoutMs: timing.handshakeRetryMs,
-        stopSignal: this.stopSignal,
-        accept: (frame) => frame.cmd === HANDSHAKE_ACK_CMD,
-      });
-      if (res.ok) {
-        const status = res.frame.payload
-          .subarray(2)
-          .toString("hex")
-          .toUpperCase();
-        // 同一批里可能先丢弃过坏帧再命中好帧：不阻塞流程，但必须在日志里可见。
-        const droppedBad = (parser?.badFrames ?? 0) - badAtStart;
-        if (droppedBad > 0) {
-          this.log(`握手成功，但期间丢弃了 ${droppedBad} 个坏帧（长度/CRC/反码不符）`, "info");
-        }
-        this.parser?.mergeStatsInto?.(this.rxStats);
-        this.handshakeInfo = {
-          attempts,
-          elapsedMs: Date.now() - startedAt,
-          rxBytes: Math.max(0, (this.session?.stats?.bytesIn ?? 0) - rxAtStart),
-        };
-        this.log(
-          `握手成功（第 ${attempts} 次，cmd=0xE1，状态字节 ${status || "--"}），切换波特率至 ${this.targetBaud}`,
-          "success",
-        );
-        return { attempts, frame: res.frame, ...this.handshakeInfo };
-      }
-      if (res.code === "STOPPED") {
-        throw new FlashError("STOPPED", FLASH_STAGES.HANDSHAKE, "烧录已取消");
-      }
-      lastCode = res.code;
-      lastError = res.error ?? null;
-      if (res.code === "PORT_CLOSED" || res.code === "IO_ERROR") {
-        throw this.handshakeFailure(
-          res.code === "PORT_CLOSED" ? "HANDSHAKE_PORT_CLOSED" : "HANDSHAKE_IO_ERROR",
-          res.error,
-          { attempts, lastCode: res.code },
-        );
-      }
-      if (res.code === "RX_OVERFLOW") {
-        throw new FlashError(
-          "RX_OVERFLOW",
-          FLASH_STAGES.HANDSHAKE,
-          `接收缓冲溢出（会话丢 ${res.overflow?.sessionBytes ?? 0} 字节），无法保证协议可靠，已中止`,
-          res.overflow,
-        );
-      }
-      if (res.code === "BAD_FRAME") {
-        this.log(`设备应答帧 CRC/长度校验失败（bad=${res.badFrames ?? "?"}），继续重试`, "info");
-      }
-      this.emitHandshakeProgress({
-        phase: "handshake",
-        attempts,
-        elapsedMs: Date.now() - startedAt,
-        rxBytes: Math.max(0, (this.session?.stats?.bytesIn ?? 0) - rxAtStart),
-        lastCode,
-        resetTimeoutMs: timing.resetTimeout,
-      });
-      await sleep(timing.handshakeFrameMinGapMs);
+      return { code: "STOPPED" };
+    })();
+    const progressTimer = setInterval(() => report("handshake"), 250);
+
+    let res;
+    try {
+      res = await Promise.race([receive, probe]);
+      this.assertNotAborted(FLASH_STAGES.HANDSHAKE);
+    } finally {
+      stop();
+      clearInterval(progressTimer);
+      this.stopSignal?.removeEventListener("abort", stop);
+      await Promise.allSettled([receive, probe]);
     }
 
-    this.parser?.mergeStatsInto?.(this.rxStats);
-    const rxBytes = Math.max(0, (this.session?.stats?.bytesIn ?? 0) - rxAtStart);
+    parser.mergeStatsInto(this.rxStats);
+    if (res.ok) {
+      const status = res.frame.payload.subarray(2).toString("hex").toUpperCase();
+      const droppedBad = parser.badFrames - badAtStart;
+      if (droppedBad > 0) {
+        this.log(`握手成功，但期间丢弃了 ${droppedBad} 个坏帧（长度/CRC/反码不符）`, "info");
+      }
+      this.handshakeInfo = { attempts, elapsedMs: Date.now() - startedAt, rxBytes: rxBytes() };
+      this.log(
+        `握手成功（第 ${attempts} 次，cmd=0xE1，状态字节 ${status || "--"}），切换波特率至 ${this.targetBaud}`,
+        "success",
+      );
+      return { frame: res.frame, ...this.handshakeInfo };
+    }
+    if (res.code === "STOPPED") {
+      throw new FlashError("STOPPED", FLASH_STAGES.HANDSHAKE, "烧录已取消");
+    }
+    if (res.code === "PORT_CLOSED" || res.code === "IO_ERROR") {
+      throw this.handshakeFailure(
+        res.code === "PORT_CLOSED" ? "HANDSHAKE_PORT_CLOSED" : "HANDSHAKE_IO_ERROR",
+        res.error,
+        { attempts, lastCode: res.code },
+      );
+    }
+    if (res.code === "RX_OVERFLOW") {
+      throw new FlashError(
+        "RX_OVERFLOW",
+        FLASH_STAGES.HANDSHAKE,
+        `接收缓冲溢出（会话丢 ${res.overflow?.sessionBytes ?? 0} 字节），无法保证协议可靠，已中止`,
+        res.overflow,
+      );
+    }
+    const detail = {
+      attempts, lastCode: res.code, rxBytes: rxBytes(), badFrames: this.rxStats.badFrames,
+    };
     throw new FlashError(
       "HANDSHAKE_TIMEOUT",
       FLASH_STAGES.HANDSHAKE,
-      buildHandshakeTimeoutMessage({
-        resetTimeoutMs: timing.resetTimeout,
-        attempts,
-        rxBytes,
-        lastCode,
-        badFrames: this.rxStats.badFrames,
-      }),
-      { attempts, lastCode, rxBytes, badFrames: this.rxStats.badFrames, error: lastError ? describePortError(lastError) : "" },
+      buildHandshakeTimeoutMessage({ resetTimeoutMs: timing.resetTimeout, ...detail }),
+      detail,
     );
   }
 

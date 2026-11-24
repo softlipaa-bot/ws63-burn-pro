@@ -198,3 +198,27 @@ test("W29-05: 同通道并发 connect 只有一个成功（所有权原子保留
   assert.match(String(rejected.reason?.message ?? rejected.reason), /已连接|占用|正在连接/);
   await abortAllMonitors();
 });
+
+test("通用串口监听使用自定义帧格式，HEX 输出保留原始字节", async () => {
+  let port;
+  let settings;
+  const output = [];
+  __setPortFactory((options) => {
+    settings = options;
+    port = new FakeSerialPort(options);
+    return port;
+  });
+  await connectMonitor("1", "COM3", 9600, (text) => output.push(text), assert.fail, {
+    dataBits: 7, parity: "even", stopBits: 2, rtscts: true, encoding: "hex",
+  });
+  assert.equal(settings.baudRate, 9600);
+  assert.equal(settings.dataBits, 7);
+  assert.equal(settings.parity, "even");
+  assert.equal(settings.stopBits, 2);
+  assert.equal(settings.rtscts, true);
+  assert.equal(settings.encoding, undefined);
+  port.emitData(Buffer.from([0, 0x0a, 0xab]));
+  assert.equal(getMonitorSnapshot().serialChannels["1"].connected, true);
+  await disconnectMonitor("1");
+  assert.equal(output.join(""), "00 0A AB\n");
+});

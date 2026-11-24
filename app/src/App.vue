@@ -30,7 +30,7 @@ import { anyTaskActive, canStopChannel, createGenerationGate } from "@/lib/task-
 import { createLogQueue } from "@/lib/log-queue.js";
 import { createProgressGuard, mergeSealedChannel } from "@/lib/progress-guard.js";
 import { runDiagnosticExport, runUserRetry, selectRetryChannels } from "@/lib/retry-action.js";
-import { shouldPopLeavingSlot, slotAnimDuration } from "@/lib/slot-motion.js";
+import { SLOT_ANIM_MS } from "@/lib/slot-motion.js";
 import { flashPhase, globalPhase, monitorPhase, progressCaption } from "@/lib/station-phase.js";
 type Section = "flash" | "monitor" | "about";
 
@@ -105,14 +105,11 @@ const openMonitorAfterFlash = ref(false);
 const PREFS_KEY = "ws63-burn-pro-prefs-v1";
 let prefsReady = false;
 
-/** Slot-count TransitionGroup anim token */
-const slotAnimToken = ref(0);
+const slotAnimating = ref(false);
 let slotAnimTimer: ReturnType<typeof setTimeout> | null = null;
-const slotAnimating = computed(() => slotAnimToken.value > 0);
 const flashSlotStageRef = ref<HTMLElement | null>(null);
 const monitorSlotStageRef = ref<HTMLElement | null>(null);
-/** 首次切换前先热一下合成层，避免冷启动 + 毛玻璃同帧卡顿 */
-let slotCompositorWarmed = false;
+const slotMoves = new WeakMap<HTMLElement, Animation>();
 const reducedMotion = ref(false);
 let motionMedia: MediaQueryList | null = null;
 
@@ -120,78 +117,37 @@ function syncReducedMotion() {
   reducedMotion.value = Boolean(motionMedia?.matches);
 }
 
-function bumpSlotAnim() {
-  if (!prefsReady) return;
-  warmSlotCompositor();
-  slotAnimToken.value += 1;
-  const token = slotAnimToken.value;
+async function animateSlotLayout(stage: HTMLElement | null) {
+  if (!stage || !prefsReady || reducedMotion.value) return;
+  const cards = [...stage.querySelectorAll<HTMLElement>(".slot-list-item")];
+  const bounds = stage.getBoundingClientRect();
+  const visible = (rect: DOMRect) => rect.bottom > bounds.top && rect.top < bounds.bottom;
+  const before = new Map(cards.map((card) => [card, card.getBoundingClientRect()]));
+  for (const card of cards) slotMoves.get(card)?.cancel();
+  slotAnimating.value = true;
   if (slotAnimTimer) clearTimeout(slotAnimTimer);
-  slotAnimTimer = setTimeout(() => {
-    if (slotAnimToken.value === token) slotAnimToken.value = 0;
-    slotAnimTimer = null;
-  }, slotAnimDuration(reducedMotion.value));
-}
+  slotAnimTimer = setTimeout(() => { slotAnimating.value = false; }, SLOT_ANIM_MS);
+  await nextTick();
 
-/** 预热 transform 层；不改路数，避免误播动画。减少动效时不升 will-change。 */
-function warmSlotCompositor() {
-  if (slotCompositorWarmed) return;
-  slotCompositorWarmed = true;
-  if (reducedMotion.value) return;
-  const roots = [flashSlotStageRef.value, monitorSlotStageRef.value].filter(
-    (el): el is HTMLElement => !!el,
-  );
-  for (const root of roots) {
-    root.querySelectorAll(".slot-list-item").forEach((el) => {
-      const node = el as HTMLElement;
-      node.style.willChange = "transform, opacity";
-      node.style.transform = "translateZ(0)";
-    });
-  }
-  // 强制一次合成
-  for (const root of roots) void root.offsetHeight;
-  for (const root of roots) {
-    root.querySelectorAll(".slot-list-item").forEach((el) => {
-      const node = el as HTMLElement;
-      node.style.willChange = "";
-      node.style.transform = "";
-    });
+  const layout = [...stage.querySelectorAll<HTMLElement>(".slot-list-item")].map((card) => ({
+    card, from: before.get(card), to: card.getBoundingClientRect(),
+  }));
+  for (const { card, from, to } of layout) {
+    if (!visible(to) && !(from && visible(from))) continue;
+    if (!from) {
+      slotMoves.set(card, card.animate([{ opacity: 0 }, { opacity: 1 }], 110));
+      continue;
+    }
+    const x = from.left - to.left;
+    const y = from.top - to.top;
+    const scale = from.width / to.width;
+    if (Math.abs(x) + Math.abs(y) + Math.abs(from.width - to.width) < 1) continue;
+    slotMoves.set(card, card.animate([
+      { transform: "translate(" + x + "px, " + y + "px) scaleX(" + scale + ")" },
+      { transform: "none" },
+    ], { duration: SLOT_ANIM_MS, easing: "cubic-bezier(.2, .75, .25, 1)" }));
   }
 }
-
-function onSlotBeforeLeave(el: Element) {
-  if (!shouldPopLeavingSlot(reducedMotion.value)) return;
-  const node = el as HTMLElement;
-  const parent = node.parentElement;
-  if (!parent) return;
-  const parentRect = parent.getBoundingClientRect();
-  const rect = node.getBoundingClientRect();
-  // Motion-style popLayout: pop out of flow, exit in place
-  node.style.position = "absolute";
-  node.style.width = `${rect.width}px`;
-  node.style.height = `${rect.height}px`;
-  node.style.left = `${rect.left - parentRect.left + parent.scrollLeft}px`;
-  node.style.top = `${rect.top - parentRect.top + parent.scrollTop}px`;
-  node.style.margin = "0";
-  node.style.zIndex = "5";
-  node.style.boxSizing = "border-box";
-  node.style.transformOrigin = "center center";
-  node.style.pointerEvents = "none";
-}
-
-function onSlotAfterLeave(el: Element) {
-  const node = el as HTMLElement;
-  node.style.position = "";
-  node.style.width = "";
-  node.style.height = "";
-  node.style.left = "";
-  node.style.top = "";
-  node.style.margin = "";
-  node.style.zIndex = "";
-  node.style.boxSizing = "";
-  node.style.transformOrigin = "";
-  node.style.pointerEvents = "";
-}
-
 
 const ports = ref<PortInfo[]>([]);
 const firmwarePaths = reactive(emptyChannelStrings());
@@ -229,12 +185,26 @@ const serialPorts = reactive(emptyChannelStrings());
 const serialBauds = reactive(emptyChannelBauds("115200"));
 const serialChannels = ref(defaultSerialChannels());
 const sendTexts = reactive(emptyChannelStrings());
+const serialDefaults = { dataBits: "8", stopBits: "1", parity: "none", rtscts: "off", encoding: "utf-8" };
+const serialProfiles = reactive(Object.fromEntries(FLASH_CHANNEL_IDS.map((id) =>
+  [id, { ...serialDefaults }],
+)) as Record<FlashChannelId, typeof serialDefaults>);
+
+function serialOptions(id: FlashChannelId) {
+  const settings = serialProfiles[id];
+  return {
+    dataBits: Number(settings.dataBits),
+    stopBits: Number(settings.stopBits),
+    parity: settings.parity,
+    rtscts: settings.rtscts === "on",
+    encoding: settings.encoding,
+  };
+}
 
 const logsByChannel = reactive(emptyChannelStrings());
 const logPanelRefs = ref<Partial<Record<FlashChannelId, HTMLElement | null>>>({});
-const logStickToBottom = reactive(
-  Object.fromEntries(FLASH_CHANNEL_IDS.map((id) => [id, true])) as Record<FlashChannelId, boolean>,
-);
+const pausedLogs = reactive<Partial<Record<FlashChannelId, string>>>({});
+const logScrollPositions: Partial<Record<FlashChannelId, number>> = {};
 const channelOutcome = reactive(
   Object.fromEntries(FLASH_CHANNEL_IDS.map((id) => [id, ""])) as Record<FlashChannelId, string>,
 );
@@ -367,7 +337,7 @@ function stripChannelTag(text: string, channel: FlashChannelId | null) {
   if (!channel) return text;
   const label = FLASH_CHANNEL_META.find((m) => m.id === channel)?.label;
   if (!label) return text;
-  return text.replaceAll(`[${label}] `, "");
+  return text.replace(`[${label}] `, "");
 }
 
 function normalizeLogChunk(text: string, channel: FlashChannelId | null = null) {
@@ -523,7 +493,7 @@ function errorHint(id: FlashChannelId): string {
 function handshakeHint(id: FlashChannelId): string {
   const h = handshakeInfo[id];
   const waited = Math.max(0, Math.round(h.elapsedMs / 1000));
-  const phase = h.phase === "wait_reset" ? "等待串口就绪" : "等待握手应答";
+  const phase = "持续监听复位";
   const codeText =
     h.lastCode === "BAD_FRAME"
       ? "（收到坏帧）"
@@ -559,29 +529,46 @@ async function applyFirmwareToAll(from: FlashChannelId = "1") {
   );
 }
 
-function isLogNearBottom(el: HTMLElement | null, threshold = 48) {
-  if (!el) return true;
-  return el.scrollHeight - el.scrollTop - el.clientHeight <= threshold;
+function pauseLog(id: FlashChannelId) {
+  if (pausedLogs[id] === undefined) pausedLogs[id] = logsByChannel[id];
 }
 
-function onLogScroll(id?: FlashChannelId) {
-  const target = id ?? activeMonitorChannels.value[0]?.id;
-  if (!target) return;
-  const el = logPanelRefs.value[target];
-  if (el) logStickToBottom[target] = isLogNearBottom(el);
+function onLogScroll(id: FlashChannelId) {
+  const el = logPanelRefs.value[id];
+  if (!el) return;
+  logScrollPositions[id] = el.scrollTop;
+  if (el.scrollHeight - el.scrollTop - el.clientHeight > 2) pauseLog(id);
+}
+
+function onLogWheel(id: FlashChannelId, event: WheelEvent) {
+  const el = logPanelRefs.value[id];
+  if (event.deltaY < 0 && el && el.scrollHeight > el.clientHeight) pauseLog(id);
 }
 
 function setLogPanelRef(id: FlashChannelId, el: unknown) {
-  logPanelRefs.value[id] = (el as HTMLElement | null) ?? null;
+  const panel = (el as HTMLElement | null) ?? null;
+  if (logPanelRefs.value[id] === panel) return;
+  logPanelRefs.value[id] = panel;
+  if (panel) {
+    void nextTick(() => {
+      if (logPanelRefs.value[id] !== panel) return;
+      panel.scrollTop = pausedLogs[id] === undefined ? panel.scrollHeight : logScrollPositions[id] ?? 0;
+    });
+  }
 }
 
 async function scrollLogPanels() {
   await nextTick();
   for (const meta of activeMonitorChannels.value) {
-    if (!logStickToBottom[meta.id]) continue;
+    if (pausedLogs[meta.id] !== undefined) continue;
     const el = logPanelRefs.value[meta.id];
     if (el) el.scrollTop = el.scrollHeight;
   }
+}
+
+function resumeLog(id: FlashChannelId) {
+  delete pausedLogs[id];
+  void scrollLogPanels();
 }
 
 const logQueue = createLogQueue({
@@ -757,7 +744,8 @@ async function enterMonitor(channel: FlashChannelId) {
     await api("serial_connect", {
       channel,
       port,
-      baudRate: Number(serialBauds[channel]) || 115200,
+      baudRate: Number(serialBauds[channel]),
+      options: serialOptions(channel),
     });
     serialChannels.value[channel].connected = true;
     activeSection.value = "monitor";
@@ -1102,6 +1090,13 @@ function loadPrefs() {
     copyMap(p.channelPorts, channelPorts);
     copyMap(p.serialPorts, serialPorts);
     copyMap(p.serialBauds, serialBauds);
+    const savedProfiles = p.serialProfiles as Partial<Record<FlashChannelId, Partial<typeof serialDefaults>>> | undefined;
+    for (const id of FLASH_CHANNEL_IDS) {
+      for (const key of Object.keys(serialDefaults) as (keyof typeof serialDefaults)[]) {
+        const value = savedProfiles?.[id]?.[key];
+        if (typeof value === "string") serialProfiles[id][key] = value;
+      }
+    }
   } catch {
     /* ignore */
   }
@@ -1123,6 +1118,7 @@ function savePrefs() {
       channelPorts: { ...channelPorts },
       serialPorts: { ...serialPorts },
       serialBauds: { ...serialBauds },
+      serialProfiles,
     };
     try {
       localStorage.setItem(PREFS_KEY, JSON.stringify(payload));
@@ -1136,38 +1132,24 @@ async function stopFlash(channel?: FlashChannelId) {
   await api("stop_flash", channel ? { channel } : {});
 }
 
-async function onFlashSlotCountChange(next: unknown) {
-  const raw = typeof next === "object" && next && "value" in next
-    ? (next as { value: unknown }).value
-    : next;
-  const n = Math.min(10, Math.max(1, Number(raw) || 1));
-  if (n === flashSlotCount.value) return;
-  if (n < flashSlotCount.value) {
-    for (const meta of FLASH_CHANNEL_META.slice(n)) {
-      if (channels.value[meta.id].running) await stopFlash(meta.id);
-    }
-  }
-  // 紧挨赋值前打 is-animating，避免 await 期间动画标记已过期
-  bumpSlotAnim();
-  flashSlotCount.value = n;
+function onFlashSlotCountChange(count: number) {
+  if (!flashRunning.value) flashSlotCount.value = count;
 }
 
-async function onMonitorSlotCountChange(next: unknown) {
-  const raw = typeof next === "object" && next && "value" in next
-    ? (next as { value: unknown }).value
-    : next;
-  const n = Math.min(10, Math.max(1, Number(raw) || 1));
-  if (n === monitorSlotCount.value) return;
-  if (n < monitorSlotCount.value) {
-    for (const meta of FLASH_CHANNEL_META.slice(n)) {
-      if (serialChannels.value[meta.id].connected) {
-        await api("serial_disconnect", { channel: meta.id });
-        serialChannels.value[meta.id].connected = false;
-      }
-    }
+const monitorClosing = reactive(new Set<FlashChannelId>());
+
+function onMonitorSlotCountChange(count: number) {
+  const removed = FLASH_CHANNEL_META.slice(count, monitorSlotCount.value);
+  monitorSlotCount.value = count;
+  for (const { id } of removed) {
+    if (!serialChannels.value[id].connected || monitorClosing.has(id)) continue;
+    monitorClosing.add(id);
+    void api("serial_disconnect", { channel: id })
+      .catch((error) => {
+        appendLocalLog(error instanceof Error ? error.message : String(error), "错误", id);
+      })
+      .finally(() => monitorClosing.delete(id));
   }
-  bumpSlotAnim();
-  monitorSlotCount.value = n;
 }
 
 async function toggleSerial(channel: FlashChannelId) {
@@ -1181,6 +1163,7 @@ async function toggleSerial(channel: FlashChannelId) {
         channel,
         port: serialPorts[channel],
         baudRate: Number(serialBauds[channel]),
+        options: serialOptions(channel),
       });
       serialChannels.value[channel].connected = true;
     }
@@ -1212,13 +1195,15 @@ function clearLogs(target: "all" | FlashChannelId = "all") {
   if (target === "all") {
     for (const id of FLASH_CHANNEL_IDS) {
       logsByChannel[id] = "";
-      logStickToBottom[id] = true;
+      delete pausedLogs[id];
+      delete logScrollPositions[id];
     }
     return;
   }
   if (isFlashChannelId(target)) {
     logsByChannel[target] = "";
-    logStickToBottom[target] = true;
+    delete pausedLogs[target];
+    delete logScrollPositions[target];
   }
 }
 
@@ -1387,23 +1372,6 @@ let offEvent: (() => void) | null = null;
 /** 水印延后，避免和水印以外的首屏抢主线程 */
 const wmReady = ref(false);
 
-/** Vue 首帧在隐藏窗口里画完后再通知主进程 show，避免「开窗瞬间」卡一下 */
-async function signalUiReady() {
-  await nextTick();
-  await new Promise<void>((resolve) => {
-    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
-  });
-  try {
-    await Promise.race([
-      document.fonts?.ready ?? Promise.resolve(),
-      new Promise((r) => setTimeout(r, 250)),
-    ]);
-  } catch {
-    /* ignore */
-  }
-  warmSlotCompositor();
-  window.ws63?.notifyUiReady?.();
-}
 
 function onVisibility() {
   logQueue.setBackground(document.visibilityState === "hidden");
@@ -1443,7 +1411,7 @@ onMounted(async () => {
   window.addEventListener("keydown", onShellKeydown);
   onVisibility();
 
-  void signalUiReady();
+  void nextTick(() => window.ws63?.notifyUiReady?.());
 
   setTimeout(() => {
     wmReady.value = true;
@@ -1598,17 +1566,9 @@ onMounted(async () => {
     }
   });
 
-  // After window is visible; main process already warms SerialPort ~700ms.
-  setTimeout(() => {
-    void (async () => {
-      try {
-        await refreshPorts();
-        await refreshState();
-      } catch (e) {
-        appendLocalLog(e instanceof Error ? e.message : String(e), "错误");
-      }
-    })();
-  }, 1200);
+  void Promise.all([refreshPorts(), refreshState()]).catch((e) => {
+    appendLocalLog(e instanceof Error ? e.message : String(e), "错误");
+  });
 
   setTimeout(() => {
     void refreshOta().catch(() => {});
@@ -1638,25 +1598,14 @@ watch(
     channelPorts,
     serialPorts,
     serialBauds,
+    serialProfiles,
   ],
   () => savePrefs(),
   { deep: true },
 );
 
-watch(flashSlotCount, () => {
-  // onFlashSlotCountChange 已 bump；此处兜底 prefs / 其它赋值
-  if (!slotAnimating.value) bumpSlotAnim();
-});
-watch(monitorSlotCount, () => {
-  if (!slotAnimating.value) bumpSlotAnim();
-});
-
-watch(activeSection, async () => {
-  // 串口页首进时卡片才挂载，需要再热一次
-  slotCompositorWarmed = false;
-  await nextTick();
-  requestAnimationFrame(() => warmSlotCompositor());
-});
+watch(flashSlotCount, () => void animateSlotLayout(flashSlotStageRef.value));
+watch(monitorSlotCount, () => void animateSlotLayout(monitorSlotStageRef.value));
 </script>
 
 <template>
@@ -1786,6 +1735,7 @@ watch(activeSection, async () => {
                 </div>
                 <UFormField label="设备数量" class="w-28 shrink-0">
                   <USelect
+                    aria-label="设备数量"
                     :model-value="flashSlotCount"
                     :items="CHANNEL_COUNT_OPTIONS"
                     value-key="value"
@@ -1876,22 +1826,17 @@ watch(activeSection, async () => {
               ref="flashSlotStageRef"
               class="flex-1 min-h-0 overflow-y-auto slot-stage pb-2"
             >
-              <TransitionGroup
-                name="slot-list"
-                tag="div"
+              <div
                 :class="[
                   flashGridClass,
                   'slot-list-grid',
                   slotAnimating ? 'is-animating' : '',
                 ]"
-                @before-leave="onSlotBeforeLeave"
-                @after-leave="onSlotAfterLeave"
               >
                 <div
-                  v-for="(meta, index) in activeFlashChannels"
+                  v-for="meta in activeFlashChannels"
                   :key="meta.id"
                   class="flash-card-compact rounded-2xl min-w-0 flex flex-col slot-list-item p-3.5 gap-2.5"
-                  :style="{ '--i': String(index) }"
                   :class="[
                     channels[meta.id].running ? 'is-running' : '',
                     phaseOf(meta.id).id === 'unverified' ? 'is-unverified' : '',
@@ -2025,7 +1970,7 @@ watch(activeSection, async () => {
                 </UButton>
               </div>
             </div>
-              </TransitionGroup>
+              </div>
           </div>
 
           <div
@@ -2079,12 +2024,17 @@ watch(activeSection, async () => {
               <div class="command-bar">
                 <UFormField label="监听路数" class="w-28 shrink-0">
                   <USelect
+                    aria-label="监听路数"
                     :model-value="monitorSlotCount"
                     :items="CHANNEL_COUNT_OPTIONS"
                     value-key="value"
+                    :disabled="busy"
                     @update:model-value="onMonitorSlotCountChange"
                   />
                 </UFormField>
+                <UButton variant="outline" color="neutral" icon="i-lucide-refresh-cw" @click="refreshPorts">
+                  刷新串口
+                </UButton>
               </div>
             </div>
             <div v-if="anySerialConnected" class="flex gap-2 flex-wrap">
@@ -2099,23 +2049,21 @@ watch(activeSection, async () => {
             </div>
           </div>
 
+          <datalist id="monitor-baud-presets">
+            <option v-for="baud in ['300', '600', '1200', '2400', '4800', '9600', '19200', '38400', '57600', ...baudOptions]" :key="baud" :value="baud" />
+          </datalist>
           <div ref="monitorSlotStageRef" class="flex-1 min-h-0 overflow-y-auto slot-stage">
-            <TransitionGroup
-              name="slot-list"
-              tag="div"
+            <div
               :class="[
                 monitorGridClass,
                 'slot-list-grid',
                 slotAnimating ? 'is-animating' : '',
               ]"
-              @before-leave="onSlotBeforeLeave"
-              @after-leave="onSlotAfterLeave"
             >
               <div
-                v-for="(meta, index) in activeMonitorChannels"
+                v-for="meta in activeMonitorChannels"
                 :key="meta.id"
                 class="flash-card-compact flex flex-col min-h-[240px] min-w-0 gap-2.5 rounded-2xl p-3.5 slot-list-item"
-                :style="{ '--i': String(index) }"
               >
                 <div class="flex items-center justify-between gap-2 shrink-0">
                   <span class="font-semibold text-sm">{{ meta.label }}</span>
@@ -2129,7 +2077,7 @@ watch(activeSection, async () => {
                 </div>
                 <p v-if="serialPorts[meta.id]" class="channel-meta">
                   {{ serialPorts[meta.id] }}
-                  <template v-if="serialChannels[meta.id].connected"> · {{ serialBauds[meta.id] }}</template>
+                  <template v-if="serialChannels[meta.id].connected"> · {{ serialChannels[meta.id].baudRate }}</template>
                 </p>
                 <p
                   v-if="(serialChannels[meta.id].truncatedSegments ?? 0) > 0 || (serialChannels[meta.id].droppedChars ?? 0) > 0"
@@ -2149,13 +2097,53 @@ watch(activeSection, async () => {
                     size="sm"
                     :disabled="serialChannels[meta.id].connected"
                   />
-                  <USelect
+                  <UInput
                     v-model="serialBauds[meta.id]"
-                    :items="baudOptions"
+                    inputmode="numeric"
+                    list="monitor-baud-presets"
+                    placeholder="波特率"
+                    aria-label="监听波特率"
                     size="sm"
                     :disabled="serialChannels[meta.id].connected"
                   />
                 </div>
+                <details class="serial-settings text-xs shrink-0">
+                  <summary>串口设置</summary>
+                  <fieldset class="serial-settings-grid" :disabled="serialChannels[meta.id].connected">
+                    <label>数据位
+                      <select v-model="serialProfiles[meta.id].dataBits">
+                        <option v-for="bits in ['8', '7', '6', '5']" :key="bits">{{ bits }}</option>
+                      </select>
+                    </label>
+                    <label>校验
+                      <select v-model="serialProfiles[meta.id].parity">
+                        <option value="none">无</option>
+                        <option value="even">偶</option>
+                        <option value="odd">奇</option>
+                        <option value="mark">Mark</option>
+                        <option value="space">Space</option>
+                      </select>
+                    </label>
+                    <label>停止位
+                      <select v-model="serialProfiles[meta.id].stopBits">
+                        <option>1</option><option>2</option>
+                      </select>
+                    </label>
+                    <label>流控
+                      <select v-model="serialProfiles[meta.id].rtscts">
+                        <option value="off">无</option>
+                        <option value="on">RTS/CTS</option>
+                      </select>
+                    </label>
+                    <label>日志格式
+                      <select v-model="serialProfiles[meta.id].encoding">
+                        <option value="utf-8">UTF-8</option>
+                        <option value="gb18030">GB18030</option>
+                        <option value="hex">HEX</option>
+                      </select>
+                    </label>
+                  </fieldset>
+                </details>
                 <div class="flex gap-1.5 shrink-0">
                   <UButton
                     size="sm"
@@ -2163,8 +2151,8 @@ watch(activeSection, async () => {
                     :color="serialChannels[meta.id].connected ? 'neutral' : 'primary'"
                     :variant="serialChannels[meta.id].connected ? 'outline' : 'solid'"
                     :icon="serialChannels[meta.id].connected ? 'i-lucide-unplug' : 'i-lucide-plug-zap'"
-                    :loading="busy"
-                    :disabled="channels[meta.id].running"
+                    :loading="busy || monitorClosing.has(meta.id)"
+                    :disabled="monitorClosing.has(meta.id) || !serialChannels[meta.id].connected && (channels[meta.id].running || !serialPorts[meta.id] || !serialBauds[meta.id].trim())"
                     @click="toggleSerial(meta.id)"
                   >
                     {{ serialChannels[meta.id].connected ? "断开" : "连接" }}
@@ -2186,15 +2174,23 @@ watch(activeSection, async () => {
                     @click="sendSerial(meta.id)"
                   />
                 </div>
-                <div class="flex-1 min-h-[120px] rounded-xl border border-slate-100/80 bg-white/55 flex flex-col overflow-hidden">
+                <div class="monitor-log rounded-xl border border-slate-100/80 bg-white/55 flex flex-col overflow-hidden">
                   <div class="flex items-center justify-between px-2 py-1 border-b border-slate-100/80 shrink-0">
-                    <span class="text-[11px] text-muted">日志</span>
+                    <span class="text-[11px] text-muted">{{ pausedLogs[meta.id] === undefined ? "实时日志" : "已暂停跟随" }}</span>
                     <div class="flex items-center gap-0.5">
+                      <UButton
+                        v-if="pausedLogs[meta.id] !== undefined"
+                        size="xs"
+                        variant="soft"
+                        icon="i-lucide-arrow-down-to-line"
+                        @click="resumeLog(meta.id)"
+                      >回到最新</UButton>
                       <UButton
                         variant="ghost"
                         color="neutral"
                         size="xs"
                         icon="i-lucide-download"
+                        aria-label="导出日志"
                         @click="exportLogs(meta.id)"
                       />
                       <UButton
@@ -2202,6 +2198,7 @@ watch(activeSection, async () => {
                         color="neutral"
                         size="xs"
                         icon="i-lucide-trash-2"
+                        aria-label="清空日志"
                         @click="clearLogs(meta.id)"
                       />
                     </div>
@@ -2209,17 +2206,20 @@ watch(activeSection, async () => {
                   <div
                     :ref="(el) => setLogPanelRef(meta.id, el)"
                     class="log-scroll-area flex-1 min-h-0 p-2 overflow-y-auto"
+                    tabindex="0"
+                    :aria-label="`${meta.label}串口日志`"
+                    @wheel.passive="onLogWheel(meta.id, $event)"
                     @scroll="onLogScroll(meta.id)"
                   >
                     <pre
-                      v-if="logsByChannel[meta.id]"
+                      v-if="pausedLogs[meta.id] ?? logsByChannel[meta.id]"
                       class="log-text font-mono text-[11px] leading-[1.55] whitespace-pre text-slate-700"
-                    >{{ logsByChannel[meta.id] }}</pre>
+                    >{{ pausedLogs[meta.id] ?? logsByChannel[meta.id] }}</pre>
                     <p v-else class="text-[11px] text-muted py-4 text-center">暂无输出</p>
                   </div>
                 </div>
               </div>
-            </TransitionGroup>
+            </div>
           </div>
         </div>
 

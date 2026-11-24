@@ -124,3 +124,12 @@ test("W03: 10 路无换行/二进制流同时涌入，每路缓冲有界", () =>
     assert.equal(ch.lines.join("").length + ch.splitter.pendingChars, 8192 * 32);
   }
 });
+
+test("GB18030 跨串口分片解码并识别 CR、LF 和跨分片 CRLF", () => {
+  const lines = [];
+  const splitter = new LineSplitter({ encoding: "gb18030", onLine: (line) => lines.push(line) });
+  splitter.push(Buffer.from([0xd6]));
+  splitter.push(Buffer.from([0xd0, 0x0d]));
+  splitter.push(Buffer.from("\nUART\rMCU\n"));
+  assert.deepEqual(lines, ["中", "UART", "MCU"]);
+});

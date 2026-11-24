@@ -118,6 +118,8 @@ for (let run = 1; run <= runs; run += 1) {
       stdio: ["ignore", "pipe", "pipe"],
     },
   );
+  const exited = new Promise((resolve) => child.once("exit", () => resolve(true)));
+  let cdp = null;
   child.stdout.on("data", (b) => (stdout += b.toString()));
   child.stderr.on("data", (b) => (stderr += b.toString()));
 
@@ -137,7 +139,7 @@ for (let run = 1; run <= runs; run += 1) {
     }
     if (!target) throw new Error(`拿不到页面 target（stderr: ${stderr.slice(-300)}）`);
 
-    const cdp = new Cdp(target.webSocketDebuggerUrl);
+    cdp = new Cdp(target.webSocketDebuggerUrl);
     await cdp.ready;
 
     // 页面加载完成
@@ -182,10 +184,14 @@ for (let run = 1; run <= runs; run += 1) {
       const m = /\[ws63\] boot (\S+) at \+(\d+)ms/.exec(line);
       if (m) report.bootMarks[m[1]] = Number(m[2]);
     }
-    cdp.close();
   } catch (err) {
     report.error = err instanceof Error ? err.message : String(err);
   } finally {
+    if (cdp?.ws.readyState === WebSocket.OPEN) {
+      void cdp.send("Browser.close").catch(() => {});
+      await Promise.race([exited, sleep(3000)]);
+    }
+    cdp?.close();
     try {
       child.kill();
     } catch {

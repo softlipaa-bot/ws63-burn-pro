@@ -104,7 +104,7 @@ function find7za() {
 }
 
 /**
- * 离线展开便携版 EXE，取出 resources/app.asar。
+ * 离线展开便携版 EXE，取出 resources/app.asar 及外置文件。
  * @returns {{ok: boolean, asarPath?: string, error?: string, extractDir?: string}}
  */
 function extractPortableAsar(exePath) {
@@ -115,7 +115,7 @@ function extractPortableAsar(exePath) {
   const extractDir = fs.mkdtempSync(path.join(os.tmpdir(), "ws63-portable-"));
   const res = spawnSync(
     sevenZip,
-    ["x", "-y", `-o${extractDir}`, exePath, "resources/app.asar"],
+    ["x", "-y", `-o${extractDir}`, exePath, "resources/app.asar", "resources/app.asar.unpacked"],
     { encoding: "utf8" },
   );
   if (res.error) {
@@ -196,7 +196,7 @@ function main() {
           bytes: fs.statSync(abs).size,
           sha256: sha256(fs.readFileSync(abs)),
           contentChecked: true,
-          note: "已用 7zip 离线展开 resources/app.asar 并与清单逐文件核对",
+          note: "已用 7zip 展开 asar 及外置文件，并与清单逐文件核对",
         };
       }
     }
@@ -267,7 +267,7 @@ function main() {
     if (portable) {
       const status = portable.ok ? "OK  " : "FAIL";
       console.log(
-        portable.missing
+        portable.missing === true
           ? `[FAIL] portable: ${portable.problems?.[0]}`
           : `[${status}] portable: 版本=${portable.packageVersion || "?"} asar=${(portable.asarSha256 || "").slice(0, 16)}… ${portable.bytes} 字节`,
       );

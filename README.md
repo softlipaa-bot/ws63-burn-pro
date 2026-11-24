@@ -1,12 +1,12 @@
 # WS63 烧录工作站 Pro
 
-当前公开源码版本：**1.1.5**。源码位于本仓库，安装包见 [Releases](https://github.com/softlipaa-bot/ws63-burn-pro/releases)。
+当前公开源码版本：**1.1.8**。源码位于本仓库，安装包见 [Releases](https://github.com/softlipaa-bot/ws63-burn-pro/releases)。
 
 ## 构建
 
 安装 Node.js 和 Windows 原生模块构建环境。进入 `app`，运行 `npm ci`、`npm run dev`。正式打包在根目录运行 `build_release.bat`。
 
-当前同步的是 1.1.5 源码；现有 Release 保留，本次未发布新的桌面安装包。
+本次同步 1.1.8 源码。GitHub Releases 中的安装包版本可独立查看。
 
 ## 发布说明
 
@@ -16,27 +16,20 @@
 
 原创项目代码采用 [MIT License](LICENSE)。第三方代码、依赖及素材的原有权利和许可证继续适用。
 
-## 原项目说明
-
-# WS63 烧录工作站 Pro
-
-Electron + Vue 3 + Nuxt UI v4。
-
 ## 功能
 
 | 侧栏 | 功能 |
 |------|------|
 | 固件烧录 | `.fwpkg` + 串口，最多 **10 路**并行 |
-| 串口与日志 | 最多 10 路监听 |
+| 串口与日志 | 最多 10 路 UART 监听，支持自定义串口参数、UTF-8 / GB18030 / HEX |
 | 关于与更新 | 软件版本检查与在线更新 |
 
-烧录等待进入下载模式超时：**60 秒**。烧录完成需**手动按 RST** 才能看到串口启动日志；
-应用如实区分「文件传输完成 / 协议确认完成 / 设备启动已验证（当前协议未定义，恒未验证）」。
+烧录时持续接收 WS63 复位握手，直到握手成功、手动停止或串口中断。烧录完成后手动按 RST 可查看串口启动日志。
+回看日志时继续接收数据，点击「回到最新」恢复跟随。
 
 ## 开发
 
 ```powershell
-cd D:\自研app\WS63烧录工作站Pro
 .\start_dev.bat
 ```
 
@@ -53,7 +46,6 @@ NAK、半帧、坏 CRC、超长无换行串口流、端口所有权、更新下�
 ## 打包
 
 ```powershell
-cd D:\自研app\WS63烧录工作站Pro
 .\build_release.bat              # 构建 + 校验 + 部署 release\ + 出 OTA zip
 .\build_release.ps1 -BuildOnly   # 只构建 + 校验（输出 app\dist-electron-release）
 ```

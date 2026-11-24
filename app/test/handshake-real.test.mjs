@@ -421,3 +421,29 @@ test("W29-04: freshParser 会把上一解析器的残余字节带过去（不再
   const carried = parser2.takePending();
   assert.equal(carried.toString("hex"), "aabb");
 });
+
+test("持续等待：一次接收覆盖多轮探测，跨轮分片 ACK 到齐后立即结束", async () => {
+  const interval = 300;
+  const { flasher, getPort } = makeRealFlasher({
+    timing: { ...FAST, resetTimeout: Infinity, handshakeRetryMs: interval },
+    onAckWrite: () => {},
+  });
+  await flasher.openPort("COM9", 921600);
+  try {
+    const pending = flasher.stageHandshake();
+    const session = flasher.session;
+    const port = getPort();
+    await sleep(interval - 30);
+    port.emitData(ACK.subarray(0, 5));
+    await sleep(65);
+    assert.equal(session.stats.timeouts, 0, "等待期间没有短时读超时");
+    assert.equal(session.waiters.length, 1);
+    port.emitData(ACK.subarray(5));
+    const result = await pending;
+    assert.ok(result.attempts >= 2);
+    assert.equal(result.frame.cmd, 0xe1);
+    assert.equal(session.waiters.length, 0);
+  } finally {
+    await flasher.closePort();
+  }
+});

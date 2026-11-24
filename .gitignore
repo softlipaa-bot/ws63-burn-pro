@@ -4,6 +4,8 @@ __pycache__/
 build/
 release/
 release-archive/
+/builds/
+/preview/
 *.spec
 *.egg-info
 *.fwpkg

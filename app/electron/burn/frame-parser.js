@@ -186,15 +186,16 @@ export async function readFrame(session, parser, opts) {
   const { timeoutMs, stopSignal, accept } = opts;
   const deadline = Date.now() + timeoutMs;
   const rejected = [];
-  let badFramesAtStart = parser?.badFrames ?? 0;
+  const badFramesAtStart = parser?.badFrames ?? 0;
 
   for (;;) {
+    if (stopSignal?.aborted) return { ok: false, code: "STOPPED", rejected };
     // 先把已缓冲的完整帧消费掉
     for (;;) {
       const frame = parser.next();
       if (!frame) break;
       if (!accept || accept(frame)) return { ok: true, code: "OK", frame };
-      rejected.push(frame.cmd);
+      if (rejected.length < 64) rejected.push(frame.cmd);
     }
 
     const over = overflowCode(session, parser);
@@ -213,7 +214,7 @@ export async function readFrame(session, parser, opts) {
       };
     }
     try {
-      const byte = await session.readByte(Math.max(20, Math.min(200, remain)));
+      const byte = await session.readByte(remain, stopSignal);
       parser.pushByte(byte);
     } catch (err) {
       const kind = classifyReadError(err);

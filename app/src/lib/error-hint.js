@@ -10,7 +10,7 @@ const HINTS = {
   PORT_BUSY: "这个串口正被占用。先断开占用它的烧录或监听。",
   PORT_OPEN_FAILED: "串口没有打开。检查线缆和端口后再试。",
   WRITE_TIMEOUT: "写入没有在时限内完成。可以重试，或更换串口线。",
-  HANDSHAKE_TIMEOUT: "60 秒内没有进入下载模式。确认按的是板上 RST，并检查接线。",
+  HANDSHAKE_TIMEOUT: "在设定时间内没有进入下载模式。确认按的是板上 RST，并检查接线。",
   ACK_TIMEOUT: "设备应答超时。查看当前阶段。",
   ERASE_ACK_TIMEOUT: "擦除应答超时。查看当前阶段。",
 };

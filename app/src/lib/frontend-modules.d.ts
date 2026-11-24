@@ -122,6 +122,7 @@ declare module "@/lib/retry-action.js" {
 }
 
 declare module "@/lib/slot-motion.js" {
+  export const SLOT_ANIM_MS: number;
   export function slotAnimDuration(reduced: boolean): number;
   export function shouldPopLeavingSlot(reduced: boolean): boolean;
 }

@@ -1,6 +1,6 @@
-/** 路数切换：普通动画约 480ms；减少动效时只留极短的一帧，用来关掉毛玻璃。 */
+/** 路数切换：普通卡片重排约 160ms。 */
 
-export const SLOT_ANIM_MS = 480;
+export const SLOT_ANIM_MS = 160;
 export const SLOT_ANIM_REDUCED_MS = 64;
 
 export function slotAnimDuration(reduced) {

@@ -78,12 +78,7 @@ function showMainWindow(reason = "") {
   }
   mainWindow.show();
   mainWindow.focus();
-  // W29-09：不再在 UI 首次枚举之外再做一次并行枚举（去重在 monitor.listPorts 内）
-  setTimeout(() => {
-    void import("./serial/monitor.js")
-      .then((m) => m.warmPortEnumeration?.())
-      .catch(() => {});
-  }, 700);
+
 }
 
 /**
@@ -156,9 +151,8 @@ function createWindow() {
 
   mainWindow.once("ready-to-show", () => {
     markBoot("readyToShow");
-    // W29-09：兜底从 4500ms 降到 1500ms，且只作为“前端没发 ui-ready”的保险；
-    // 正常路径由前端 ui-ready 立即触发，不再把隐藏窗口的等待当成性能优化。
-    setTimeout(() => showMainWindow("ready-to-show fallback"), 1500);
+    // Vue 挂载后发出 ui-ready。保留兜底，便于页面异常时查看界面。
+    setTimeout(() => showMainWindow("ready-to-show fallback"), 600);
   });
   mainWindow.webContents.once("did-finish-load", () => markBoot("didFinishLoad"));
 }
